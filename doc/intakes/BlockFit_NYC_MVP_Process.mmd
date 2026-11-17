@@ -1,0 +1,42 @@
+flowchart TD
+    subgraph PUBLIC["Public · no sign-in"]
+        A["Find equipment on map or list"]
+        B["Need equipment closer to you?"]
+        A --> B
+    end
+
+    subgraph RESIDENT["Resident · signed in"]
+        C["Choose equipment and confirm private location"]
+        D["Review and record request"]
+        E["Manage request: edit, reconfirm or withdraw"]
+        C --> D
+        D --> E
+    end
+
+    B -->|Request nearby equipment| C
+
+    subgraph CITY["City workspace · staff access"]
+        F["Maintain equipment inventory and candidate sites"]
+        G["Assess unmet demand against existing coverage"]
+        H["Compare candidate sites within budget"]
+        I["Review costs, assumptions and feasibility"]
+        J["Export investment comparison brief"]
+
+        F --> G
+        G --> H
+        H --> I
+        I -->|Revise assumptions| H
+        I -->|Ready for discussion| J
+    end
+
+    D -->|One active request per resident and equipment type| G
+    E -->|Update active demand| G
+    F -->|Publish public equipment details| A
+
+    subgraph EXISTING["Existing City processes · outside BlockFit"]
+        K["Public project records and budget requests"]
+        L["Existing planning and funding review"]
+    end
+
+    K -.->|Staff consult and attach references manually| I
+    J -.->|Staff carry brief into existing review| L
