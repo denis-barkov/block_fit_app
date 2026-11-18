@@ -8,11 +8,13 @@ import {maintainAccount,provisionAccounts} from './accounts.mjs';
 const [command,selected,confirmation]=process.argv.slice(2);
 try {
   if(command==='setup')setupEnvironment();
-  const env=environment(selected);
+  const env=environment(selected,{dryRun:['provision','deploy'].includes(command)&&confirmation==='yes'});
   if(command==='build') build(env);
   else if(command==='package') {
     if(selected!=='local') throw new Error('Use make deploy ENV=prod DRY_RUN=yes for the named production target.');
     packageWorker(env,writeConfig(env));
+    const {packagePages}=await import('./pages.mjs');
+    packagePages({...env,APP_ORIGIN:'https://blockfit-local.pages.dev',PAGES_PROJECT_NAME:'blockfit-local'},resolve(state,'pages-dry-run'));
   }
   else if(selected==='local') {
     const path=writeConfig(env);

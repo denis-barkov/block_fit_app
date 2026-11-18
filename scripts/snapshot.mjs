@@ -51,7 +51,7 @@ function validateRecord(table,row) {
 }
 export async function restoreSnapshot(db,snapshot) {
   const legacy=snapshot?.version==='0.0.1' && snapshot.migration==='0002_pilot_operations.sql';
-  if (!snapshot || (!legacy && (snapshot.version!==version || snapshot.migration!==migration || ![0,1,2].includes(snapshot.demoVersion))) ||
+  if (!snapshot || (!legacy && (![version,'0.0.2'].includes(snapshot.version) || snapshot.migration!==migration || ![0,1,2].includes(snapshot.demoVersion))) ||
     !['demo','private'].includes(snapshot.mode) || !Number.isSafeInteger(snapshot.spent) || snapshot.spent<0) {
     throw new Error('This snapshot version, schema or mode is incompatible.');
   }

@@ -13,9 +13,11 @@ const optionalText=z.string().optional().default('');
 const optionalInteger=z.string().regex(/^(|[1-9][0-9]{0,12})$/).refine(value=>Number(value)<=1e12).optional().default('');
 const schema=z.object({
   PROJECT_NAME:name,MANAGED_BY:z.literal('script'),SERVICE_PART:letterToken.or(z.literal('')).optional(),FUNDING:letterToken.or(z.literal('')).optional(),
-  DEPLOYMENT:z.enum(['local','prod']),APP_ORIGIN:z.url(),AUTH_SECRET:z.string().min(32),
+  DEPLOYMENT:z.enum(['local','prod']),APP_ORIGIN:optionalText,AUTH_SECRET:z.string().min(32),
   CONTACT_EMAIL:z.email().or(z.literal('')).optional(),
-  CLOUDFLARE_ACCOUNT_ID:optionalText,CLOUDFLARE_API_TOKEN:optionalText,DEPLOYMENT_SUFFIX:letterToken.or(z.literal('')).optional().default(''),
+  CLOUDFLARE_ACCOUNT_ID:optionalText,CLOUDFLARE_API_TOKEN:optionalText,CLOUDFLARE_TAG_API_TOKEN:optionalText,
+  PAGES_PROJECT_NAME:z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,56}[a-z0-9])?$/).or(z.literal('')).optional().default(''),
+  DEPLOYMENT_SUFFIX:letterToken.or(z.literal('')).optional().default(''),
   AI_ENABLED:z.enum(['true','false']).optional().default('false'),OPENAI_API_KEY:optionalText,OPENAI_MODEL:optionalText,
   AI_BUDGET_MICROUSD:optionalInteger,AI_INPUT_MICROUSD_PER_MILLION:optionalInteger,AI_OUTPUT_MICROUSD_PER_MILLION:optionalInteger,
 });
@@ -29,28 +31,28 @@ export function setupEnvironment() {
     }
   }
 }
-export function environment(selected) {
+export function environment(selected,{dryRun=false}={}) {
   if(selected!=='local'&&selected!=='prod') throw new Error('Select ENV=local or ENV=prod explicitly.');
   const data={...readEnv('.env'),...readEnv('.env.'+selected)};
-  // CI can inject only these three private values, and must explicitly opt in.
+  // CI can inject only these private values, and must explicitly opt in.
   if (selected==='prod' && process.env.BLOCKFIT_CI_INJECT==='true') {
-    for (const key of ['CLOUDFLARE_API_TOKEN','AUTH_SECRET','OPENAI_API_KEY']) {
+    for (const key of ['CLOUDFLARE_API_TOKEN','CLOUDFLARE_TAG_API_TOKEN','AUTH_SECRET','OPENAI_API_KEY']) {
       if (process.env[key]) data[key]=process.env[key];
     }
   }
   const parsed=schema.safeParse(data);
   if(!parsed.success) throw new Error('Check configuration fields: '+parsed.error.issues.map(issue=>issue.path.join('.')).join(', '));
   const env=parsed.data;
-  const origin=new URL(env.APP_ORIGIN);
-  if(env.DEPLOYMENT!==selected || origin.origin!==env.APP_ORIGIN) throw new Error('Environment or canonical app origin is incorrect.');
-  if(selected==='local' && (origin.protocol!=='http:' || origin.hostname!=='127.0.0.1' || !origin.port)) {
+  const origin=env.APP_ORIGIN?URL.parse(env.APP_ORIGIN):null;
+  if(env.DEPLOYMENT!==selected || (env.APP_ORIGIN && origin?.origin!==env.APP_ORIGIN)) throw new Error('Environment or canonical app origin is incorrect.');
+  if(selected==='local' && (!origin || origin.protocol!=='http:' || origin.hostname!=='127.0.0.1' || !origin.port)) {
     throw new Error('Local APP_ORIGIN must be an explicit http://127.0.0.1 port.');
   }
   const resourceName=[env.PROJECT_NAME,selected,env.DEPLOYMENT_SUFFIX].filter(Boolean).join('-');
   if (selected==='prod' && (!/^[0-9a-f]{32}$/i.test(env.CLOUDFLARE_ACCOUNT_ID) ||
-      !env.CLOUDFLARE_API_TOKEN || !env.CONTACT_EMAIL || origin.protocol!=='https:' || origin.port ||
-      !origin.hostname.endsWith('.workers.dev') || !origin.hostname.startsWith(resourceName+'.'))) {
-    throw new Error('Production requires a valid account, API token, recovery email and matching HTTPS workers.dev origin.');
+      (!dryRun && !env.CONTACT_EMAIL) || !env.PAGES_PROJECT_NAME ||
+      (origin && (origin.protocol!=='https:' || origin.port || !/^[a-z0-9][a-z0-9-]*\.pages\.dev$/.test(origin.hostname))))) {
+    throw new Error('Production requires a valid Cloudflare account and Pages project name, plus a recovery email for live commands. If set, APP_ORIGIN must be the HTTPS pages.dev origin.');
   }
   if(env.AI_ENABLED==='true' && (!env.OPENAI_API_KEY || !env.AI_BUDGET_MICROUSD ||
     !env.AI_INPUT_MICROUSD_PER_MILLION || !env.AI_OUTPUT_MICROUSD_PER_MILLION)) {
@@ -73,6 +75,8 @@ export function writeConfig(env,{databaseId,directory=state}={}) {
   if(prod) {
     if(!databaseId) throw new Error('A production D1 manifest is required.');
     config.account_id=env.CLOUDFLARE_ACCOUNT_ID;
+    config.workers_dev=false;
+    config.preview_urls=false;
     config.d1_databases[0].database_id=databaseId;
   }
   writeFileSync(path,JSON.stringify(config,null,2)+'\n',{mode:0o600});
@@ -106,7 +110,8 @@ export function runtimeEnv(env) {
   return {...child,CI:'true',WRANGLER_SEND_METRICS:'false',
     CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV:'false',CLOUDFLARE_INCLUDE_PROCESS_ENV:'false',
     WRANGLER_LOG_PATH:resolve(state,'wrangler.log'),CLOUDFLARE_ENV:'',
-    ...(env.DEPLOYMENT==='prod'?{CLOUDFLARE_ACCOUNT_ID:env.CLOUDFLARE_ACCOUNT_ID,CLOUDFLARE_API_TOKEN:env.CLOUDFLARE_API_TOKEN}:{})};
+    ...(env.DEPLOYMENT==='prod'?{CLOUDFLARE_ACCOUNT_ID:env.CLOUDFLARE_ACCOUNT_ID,
+      ...(env.CLOUDFLARE_API_TOKEN?{CLOUDFLARE_API_TOKEN:env.CLOUDFLARE_API_TOKEN}:{})}:{})};
 }
 export function run(command,args,env,{allowInterrupt=false,...options}={}) {
   const result=spawnSync(command,args,{stdio:'inherit',env:runtimeEnv(env),...options});

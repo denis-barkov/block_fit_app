@@ -2,7 +2,7 @@
 
 BlockFit NYC helps City staff compare outdoor fitness investments using resident requests, existing equipment coverage, and transparent cost assumptions. Residents can find equipment, check what is known about access, and request what is missing near a private location. Staff can maintain the inventory, model candidate sites under a budget, and export a comparison brief.
 
-The 0.0.2 local beta uses a Forest Hills, Queens demonstration dataset with 81 synthetic request origins, 15 illustrative equipment records, and eight candidate sites. Demo verification and cost assumptions are simulated. BlockFit NYC is an NYCEDC project concept. A recorded request can inform planning discussion, and City approval and funding follow existing processes.
+The 0.0.3 local beta uses a Forest Hills, Queens demonstration dataset with 81 synthetic request origins, 15 illustrative equipment records, and eight candidate sites. Demo verification and cost assumptions are simulated. BlockFit NYC is an NYCEDC project concept. A recorded request can inform planning discussion, and City approval and funding follow existing processes.
 
 ## Run locally
 
@@ -24,7 +24,7 @@ Setup applies the SQL migrations and creates the local dataset and two demonstra
 | `make test` | Run domain, API/D1, accounting and operations tests with isolated databases. |
 | `npx playwright install --only-shell chromium` then `make test-browser` | Run isolated Chromium journeys using a loopback Worker and offline map fixtures. |
 | `make build ENV=local` | Build static frontend assets in `dist/`. |
-| `make package ENV=local` | Bundle the Worker and validate Wrangler configuration with a deployment dry run. |
+| `make package ENV=local` | Bundle the Worker in Wrangler dry-run mode and package the Pages ingress. |
 | `make db-migrate ENV=local` / `make seed ENV=local` | Apply migrations or initialize an empty demo dataset. |
 | `make seed-update ENV=local` | Preview the fixture replacement. Run again with `APPLY=yes` to apply it. |
 | `make reset-local ENV=local RESET=local` | With the dev server stopped, move the old local store aside, then migrate and seed a fresh one. |
@@ -42,9 +42,9 @@ Use [NYC Parks Properties](https://data.cityofnewyork.us/Recreation/Parks-Proper
 ## Technology and configuration
 
 - TypeScript, React, Vite and Tailwind provide a responsive interface. MapLibre GL JS and OpenFreeMap supply the interactive basemap with attribution. Turf provides distance and radius geometry. Lists and coordinate fields remain available when the map fails.
-- Hono and Zod serve same-origin APIs in a Cloudflare Worker with Static Assets. D1 stores users, sessions, inventory, demand, and AI accounting. Better Auth handles credentials and sessions. Resident ownership and staff privileges are enforced in the Worker. Persistent D1 counters limit login, registration, and generation attempts.
+- Hono and Zod serve same-origin APIs in a Cloudflare Worker with Static Assets. In production, Cloudflare Pages forwards the public origin to the private Worker through a service binding. D1 stores users, sessions, inventory, demand, and AI accounting. Better Auth handles credentials and sessions. Resident ownership and staff privileges are enforced in the Worker. Persistent D1 counters limit login, registration, and generation attempts.
 - `config/` owns shared categories, bounds, policy and calculation defaults. `design/` owns visual tokens. Vitest and Playwright cover calculations, APIs, and browser journeys. npm, Wrangler, and maintained Make targets handle application operations.
-- Start with `.env.example`, `.env.local.example`, and `.env.prod.example`. Setup creates missing files only and generates the local auth secret. The tooling loads root `.env`, then `.env.local` or `.env.prod` for the explicitly selected environment. Vite’s dotenv loading is disabled, and no private bindings are serialized into the frontend. Opt-in production CI injection can override only `CLOUDFLARE_API_TOKEN`, `AUTH_SECRET`, and `OPENAI_API_KEY` when `BLOCKFIT_CI_INJECT=true`. Wrangler receives resolved bindings and provider credentials. Production uses its secret storage.
+- Start with `.env.example`, `.env.local.example`, and `.env.prod.example`. Setup creates missing files only and generates the local auth secret. The tooling loads root `.env`, then `.env.local` or `.env.prod` for the explicitly selected environment. Vite’s dotenv loading is disabled, and no private bindings are serialized into the frontend. Opt-in production CI injection can override only `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_TAG_API_TOKEN`, `AUTH_SECRET`, and `OPENAI_API_KEY` when `BLOCKFIT_CI_INJECT=true`. Wrangler receives resolved bindings and provider credentials. Production uses its secret storage.
 - Recovery uses **Forgot password? → Contact us** with the configured `CONTACT_EMAIL`. No verification or reset email is sent. Operators independently verify ownership before resetting, since an unverified email claim does not prove identity. Use `make staff-create`, `make password-reset`, or `make session-revoke` with an explicit `ENV`. Passwords are entered at a hidden prompt. Reset revokes existing sessions.
 
 ### Demo updates and named accounts
@@ -57,24 +57,26 @@ Ordinary resident registration remains available. Staff provisioning requires op
 
 ## Cloudflare operations
 
-The Worker and D1 database use the same `blockfit-nyc-prod[-suffix]` name by default. The protected manifest in `.blockfit/` associates the exact Cloudflare account, Worker name, and D1 UUID. Maintain these through the Make targets and keep a protected copy of the manifest. An optional suffix allows a separate deployment without source edits. The production origin must match the account’s enabled `workers.dev` subdomain. Preview URLs are disabled.
+The public demo is served at the Pages project’s assigned `pages.dev` URL. Set `PAGES_PROJECT_NAME` in `.env.prod` (the example requests `blockfit-demo`). Provisioning reads the assigned hostname and uses it as the canonical origin for Pages, the Worker, and Better Auth. An optional `APP_ORIGIN` pins the exact value. The Worker and D1 use `blockfit-nyc-prod[-suffix]` by default. Pages invokes the Worker through a private service binding. The Worker’s `workers.dev` route and version preview URLs are disabled. Pages preview and deployment aliases cannot enter the app. See the [deployment architecture](doc/architecture.md).
 
-Before deploying, configure the production environment, a real recovery contact, a fresh auth secret, and an account-scoped token with Workers Scripts, D1, account lookup, and Resource Tagging permissions. The scripts validate the selected account and origin, reconcile the database, apply migrations, and upload the Worker and assets with secrets. Provision staff through the operator command. Run production smoke checks with dedicated credentials and verify the Worker’s actual CPU and account headroom before broader testing. [Workers limits](https://developers.cloudflare.com/workers/platform/limits/) · [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/)
+Set the Cloudflare account ID, recovery email, and auth secret in the ignored production environment. Wrangler’s existing OAuth login can manage Pages, Workers, and D1. Use an account-owned `CLOUDFLARE_TAG_API_TOKEN` with Resource Tagging read/write permissions when using OAuth. Alternatively, a scoped `CLOUDFLARE_API_TOKEN` can handle both deployment and tags. Store tokens privately. The protected manifest in `.blockfit/` records the account, Pages project, Worker, and D1 database. For a parallel deployment, select a unique Pages project name and deployment suffix.
+
+Run `make provision ENV=prod DRY_RUN=yes` to check the target without creating cloud resources. After authorized provisioning and deployment, run the production smoke test and check actual Worker CPU before broader testing. [Workers limits](https://developers.cloudflare.com/workers/platform/limits/) · [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/)
 
 | Command | Purpose |
 | --- | --- |
-| `make provision ENV=prod` | Reconcile the named D1 database and its tags, then apply migrations. Use `DRY_RUN=yes` for read-only target verification. |
-| `make deploy ENV=prod` | Build, migrate, and deploy the named Worker. Use `DRY_RUN=yes` for account/binding verification and packaging. |
+| `make provision ENV=prod` | Reconcile the Pages project and D1 database, tag both, and apply migrations. Use `DRY_RUN=yes` for read-only target verification. |
+| `make deploy ENV=prod` | Deploy the private Worker, verify its public routes are off, then deploy the Pages ingress. Use `DRY_RUN=yes` for target verification and packaging. |
 | `make seed ENV=prod` / `make seed-update ENV=prod` | Initialize a demo fixture or preview a fixture update. Updates require `APPLY=yes` and target confirmation. |
 | `make smoke-prod ENV=prod` | Check ordinary login, permissions, and comparison with dedicated test accounts, remove any smoke records, and sign out. |
 | `make suspend ENV=prod` / `make resume ENV=prod` | Close or reopen the site and API while retaining D1. |
 | `make snapshot ENV=prod SNAPSHOT=<private path>` | After suspension and draining in-flight writes, export portable data and compatibility metadata. |
 | `make restore ENV=prod SNAPSHOT=<private path>` | Import into a separately named, fresh D1 target. Validate records before resume. |
-| `make destroy ENV=prod` | Confirm the exact account, Worker, D1 UUID, and data retention choice. Independent backups stay outside the target. |
+| `make destroy ENV=prod` | Confirm the exact account, Pages project, Worker, D1 UUID, and data retention choice. Independent backups stay outside the target. |
 
-The workflow uses the Cloudflare Resource Tagging API for Worker and D1 metadata. Values come from the resolved configuration. Defaults are `project-name=blockfit-nyc`, `environment=prod`, `managed-by=script`, `service-part=infra`, and `funding=personal`. Tags help inventory resources. Track usage for the named Worker and D1 database alongside billing and shared account limits. Native Worker logging records compact errors with correlation IDs. Routine invocation logs and tracing are disabled. [Resource tagging](https://developers.cloudflare.com/resource-tagging/) · [Logging pricing](https://developers.cloudflare.com/observability/pricing/)
+The workflow uses the Cloudflare Resource Tagging API for Pages, Worker, and D1 metadata. Values come from the resolved configuration. Defaults are `project-name=blockfit-nyc`, `environment=prod`, `managed-by=script`, `service-part=infra`, and `funding=personal`. Tags help inventory resources. Track usage for the named Worker and D1 database alongside billing and shared account limits. Native Worker logging records compact errors with correlation IDs. Routine invocation logs and tracing are disabled. [Resource tagging](https://developers.cloudflare.com/resource-tagging/) · [Logging pricing](https://developers.cloudflare.com/observability/pricing/)
 
-Local auth uses Better Auth's native scrypt parameters. Median native scrypt verification was about 37 ms of Node process CPU on the development machine. Median staff sign-in took about 39 ms wall time through local Workerd and D1. The Cloudflare Free Worker allowance is 10 ms CPU per request, so validate actual Workers CPU for sign-up, login and password change during authorized production testing. Deployment and live Cloudflare verification are pending for 0.0.2. [Workers CPU limits](https://developers.cloudflare.com/workers/platform/limits/#cpu-time)
+Local auth uses Better Auth's native scrypt parameters. Median native scrypt verification was about 37 ms of Node process CPU on the development machine. Median staff sign-in took about 39 ms wall time through local Workerd and D1. The Cloudflare Free Worker allowance is 10 ms CPU per request, so validate actual Workers CPU for sign-up, login and password change during authorized production testing. Deployment and live Cloudflare verification are pending for 0.0.3. [Workers CPU limits](https://developers.cloudflare.com/workers/platform/limits/#cpu-time)
 
 ## Optional AI and portable data
 

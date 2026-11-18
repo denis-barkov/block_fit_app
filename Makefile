@@ -8,13 +8,13 @@ help:
 	  'make setup                      Install dependencies, migrate and seed local D1' \
 	  'make dev ENV=local              Build and serve the local app' \
 	  'make build ENV=local            Build frontend assets' \
-	  'make package ENV=local          Dry-run the Worker build' \
+	  'make package ENV=local          Dry-run the Worker build and package the Pages ingress' \
 	  'make check / test / test-browser Verify types, domain/API and browser behavior' \
 	  'make db-migrate / seed ENV=...   Apply migrations or initialize demo data' \
 	  'make staff-create / password-reset / session-revoke ENV=... Manage accounts' \
 	  'make seed-update ENV=... [APPLY=yes] Preview or apply the demo fixture update' \
 	  'make accounts-provision ENV=... [ACCOUNTS=...] [APPLY=yes] Preview or apply named accounts' \
-	  'make provision / deploy ENV=prod [DRY_RUN=yes] Prepare or publish Cloudflare resources' \
+	  'make provision / deploy ENV=prod [DRY_RUN=yes] Prepare or publish Pages, Worker and D1' \
 	  'make snapshot ENV=... SNAPSHOT=... [MODE=demo] Export portable data' \
 	  'make restore ENV=... SNAPSHOT=... Restore into a fresh target' \
 	  'make suspend / resume / destroy ENV=prod  Manage the named deployment' \

@@ -9,7 +9,13 @@ A portable JSON snapshot carries application and migration versions. A private s
 3. Choose a directory that does not yet exist, for example `.blockfit/restore-qa`. Run `BLOCKFIT_STORE=.blockfit/restore-qa make restore ENV=local SNAPSHOT=.blockfit/pilot-demo.json`. The script migrates the fresh directory, imports the snapshot, checks record counts and foreign keys, and leaves the app suspended.
 4. Use the same `BLOCKFIT_STORE` for subsequent commands. For a demo restore, create a fresh staff account with `make staff-create ENV=local` and self-register a resident after resume. Run `make resume ENV=local` then `make dev ENV=local` against that store. Verify inventory, role access, and the expected comparison. A private restore preserves the account password hashes and requires sign-in again.
 
-For a Cloudflare restore, provision a separately named destination database before restoring. Keep the destination undeployed while importing, then deploy with a fresh `AUTH_SECRET` and chosen operator credentials. Resume when you have reviewed results. Keep the source and destination manifests and backups distinct. The `RETAIN` option in `make destroy ENV=prod` removes the Worker and retains D1. The `DELETE` option removes the named Worker and D1 UUID.
+For a Cloudflare restore, provision a separately named destination database before restoring. Keep the destination undeployed while importing, then deploy with a fresh `AUTH_SECRET` and chosen operator credentials. Resume when you have reviewed results. Keep the source and destination manifests and backups distinct. The `RETAIN` option in `make destroy ENV=prod` removes the Pages project and Worker while retaining D1. The `DELETE` option also removes the named D1 UUID.
+
+## Production rollout
+
+1. Set the target and recovery contact in `.env.prod`. Run `make provision ENV=prod DRY_RUN=yes` to check account ownership and names. Obtain the scoped Resource Tagging token if using Wrangler OAuth.
+2. Once authorized, run `make provision ENV=prod`. Record the assigned Pages origin printed by the script. Run `make deploy ENV=prod DRY_RUN=yes` to build both artifacts, then `make deploy ENV=prod` to publish.
+3. Seed illustrative data and provision accounts through the corresponding Make targets. Run `make smoke-prod ENV=prod` through the canonical Pages address. Check anonymous staff redirects, secure host-only session cookies, and the actual authentication CPU before sharing the demo.
 
 ## Production smoke test
 

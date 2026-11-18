@@ -166,12 +166,11 @@ it('provisions a fresh production target in preview mode using read-only lookups
   const account='00112233445566778899aabbccddeeff';
   const resourceName='blockfit-nyc-prod-workspace-dryrun';
   const remote={CLOUDFLARE_ACCOUNT_ID:account,CLOUDFLARE_API_TOKEN:'synthetic-token',resourceName,
-    origin:new URL(`https://${resourceName}.sample.workers.dev`)};
+    PAGES_PROJECT_NAME:'workspace-dryrun'};
   const transport=vi.fn(async(url,init)=>{
     expect(init.method).toBe('GET');
     const path=new URL(url).pathname.split(account)[1];
     if (!path) return Response.json({success:true,result:{id:account}});
-    if(path==='/workers/subdomain')return Response.json({success:true,result:{subdomain:'sample'}});
     if(path==='/d1/database')return Response.json({success:true,result:[]});
     return new Response(null,{status:404});
   });

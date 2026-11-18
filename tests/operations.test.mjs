@@ -79,18 +79,17 @@ it('uses maintained password hashing and revokes prior sessions on operator rese
 it('checks deployment scope and preserves existing tags while surfacing provider failures',async()=>{
   const env={CLOUDFLARE_ACCOUNT_ID:'account-id',CLOUDFLARE_API_TOKEN:'mock',
     PROJECT_NAME:'blockfit-nyc',MANAGED_BY:'script',DEPLOYMENT:'prod',FUNDING:'personal',
-    resourceName:'blockfit-nyc-prod',origin:new URL('https://blockfit-nyc-prod.demo.workers.dev')};
+    resourceName:'blockfit-nyc-prod'};
   const transport=vi.fn(async(url,init)=>{
     const path=new URL(url).pathname.replace('/client/v4/accounts/account-id','');
     if (path==='') return Response.json({success:true,result:{id:'account-id'}});
-    if (path==='/workers/subdomain') return Response.json({success:true,result:{subdomain:'demo'}});
     if (path==='/tags'&&init.method==='GET') return Response.json({success:true,result:{tags:{owner:'different',environment:'old'}}});
     if (path==='/tags'&&init.method==='PUT') return Response.json({success:true,result:JSON.parse(init.body)});
     return new Response(null,{status:403});
   });
   const call=cloudflare(env,transport);
   await validateAccount(call,env);
-  await expect(validateAccount(call,{...env,origin:new URL('https://wrong.demo.workers.dev')})).rejects.toThrow('subdomain');
+  await expect(validateAccount(call,{...env,CLOUDFLARE_ACCOUNT_ID:'different'})).rejects.toThrow('configured account');
   await applyTags(call,env,'worker',env.resourceName,false);
   expect(JSON.parse(transport.mock.calls.at(-1)[1].body)).toEqual({
     resource_type:'worker',resource_id:env.resourceName,

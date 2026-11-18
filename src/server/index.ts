@@ -22,6 +22,9 @@ app.onError((error,c) => {
   return c.json({error:'Something went wrong. Try again.',requestId:c.get('requestId')},500);
 });
 app.use('*',async (c,next) => {
+  if (c.env.DEPLOYMENT==='prod' && new URL(c.req.url).origin!==c.env.APP_ORIGIN) {
+    return c.text('Not found.',404,{'Cache-Control':'no-store'});
+  }
   c.set('requestId',crypto.randomUUID());
   c.header('X-Content-Type-Options','nosniff');
   c.header('Referrer-Policy','strict-origin-when-cross-origin');

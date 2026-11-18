@@ -1,10 +1,13 @@
+import {spawnSync} from 'node:child_process';
+import {bin,runtimeEnv} from './environment.mjs';
+
 export class CloudflareError extends Error {
   constructor(status,path) {super(`Cloudflare request failed (${status}) at ${path.split('?')[0]}.`);this.status=status;}
 }
-export function cloudflare(env,transport=fetch) {
+export function cloudflare(env,transport=fetch,credential=env.CLOUDFLARE_API_TOKEN) {
   const base=`https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}`;
   return async (path,method='GET',data)=>{
-    const response=await transport(base+path,{method,headers:{Authorization:`Bearer ${env.CLOUDFLARE_API_TOKEN}`,
+    const response=await transport(base+path,{method,headers:{Authorization:`Bearer ${credential}`,
       'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data),signal:AbortSignal.timeout(30_000)});
     if(response.status===204)return null;
     if(!response.ok)throw new CloudflareError(response.status,path);
@@ -29,8 +32,18 @@ export async function applyTags(call,env,type,id,initial) {
 export async function validateAccount(call,env) {
   const account=await call('');
   if(account?.id!==env.CLOUDFLARE_ACCOUNT_ID)throw new Error('The token target does not match the configured account.');
-  const subdomain=await call('/workers/subdomain');
-  if(env.origin.hostname!==`${env.resourceName}.${subdomain?.subdomain}.workers.dev`) {
-    throw new Error('APP_ORIGIN does not match the selected account Workers subdomain.');
+}
+
+export function wranglerCredential(env) {
+  if(env.CLOUDFLARE_API_TOKEN)return env.CLOUDFLARE_API_TOKEN;
+  const result=spawnSync(bin('wrangler'),['auth','token','--json'],{
+    env:runtimeEnv(env),encoding:'utf8',stdio:['ignore','pipe','pipe'],
+  });
+  let response;
+  try {response=JSON.parse(result.stdout);}
+  catch { /* Never print CLI output that could contain credentials. */ }
+  if(result.status!==0 || response?.type!=='oauth' || !response.token) {
+    throw new Error('Sign in with Wrangler or supply a scoped Cloudflare API token.');
   }
+  return response.token;
 }

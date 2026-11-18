@@ -3,6 +3,15 @@ import {smokeCredentials} from './accounts.mjs';
 import {categories,pilot,planning} from '../config/settings.ts';
 
 export async function smoke(env,db,{transport=fetch,readCredentials=smokeCredentials}={}) {
+  const secure=env.APP_ORIGIN.startsWith('https:');
+  if (secure) {
+    const staff=await transport(env.APP_ORIGIN+'/staff',{redirect:'manual',signal:AbortSignal.timeout(30_000)});
+    const location=staff.headers.get('Location');
+    const redirect=location&&URL.parse(location,env.APP_ORIGIN);
+    if(staff.status!==302 || redirect?.origin!==env.APP_ORIGIN || redirect.pathname!=='/staff/login') {
+      throw new Error('Anonymous staff access must redirect to the canonical Pages origin.');
+    }
+  }
   const marker='smoke-'+randomUUID();
   let owner;
   let category;
@@ -14,8 +23,13 @@ export async function smoke(env,db,{transport=fetch,readCredentials=smokeCredent
     },body:data?JSON.stringify(data):undefined,redirect:'error',signal:AbortSignal.timeout(30_000)});
     const signIn=await http('/auth/sign-in/email','POST',{email,password});
     if(!signIn.ok)throw new Error(`Smoke login failed for dedicated ${role} (${signIn.status}).`);
-    cookie=signIn.headers.getSetCookie().map(entry=>entry.split(';',1)[0]).join('; ');
+    const cookies=signIn.headers.getSetCookie();
+    cookie=cookies.map(entry=>entry.split(';',1)[0]).join('; ');
     try {
+      if(secure && (!cookies.some(entry=>/;\s*Secure(?:;|$)/i.test(entry)&&/;\s*HttpOnly(?:;|$)/i.test(entry)) ||
+          cookies.some(entry=>/;\s*Domain=/i.test(entry)||entry.includes('workers.dev')))) {
+        throw new Error('Production login must issue a secure, host-only session cookie.');
+      }
       const session=await (await http('/me')).json();
       if(session.user?.role!==role||session.user?.purpose!=='automated-test') {
         throw new Error(`Smoke requires a dedicated automated-test ${role} account.`);
