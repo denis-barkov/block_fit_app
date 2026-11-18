@@ -137,12 +137,13 @@ describe('connected Worker API and D1',()=>{
     await env.DB.exec('UPDATE operations SET ai_frozen=0 WHERE id=1');
     const realFetch=globalThis.fetch;
     const responseBody={summary:'Test candidate leads on modeled lifecycle cost per additional requester.',tradeoffs:'',checks:'',
-      highlightedOptionIds:[siteId],referencedOptionIds:[siteId]};
+      referencedOptionIds:[siteId]};
     const openai=vi.fn(async (url:string, init?:RequestInit)=>{
       const payload=JSON.parse(String(init?.body));
       const input=payload.input[1].content;
       const snapshot=JSON.parse(input);
       expect(snapshot.ranking.highlightedOptionIds).toEqual([siteId]);
+      expect(payload.text.format.schema.required).not.toContain('highlightedOptionIds');
       expect(snapshot.options[0]).toMatchObject({id:siteId,name:'Test candidate',highlightEligible:true});
       expect(input).not.toContain(request.note);
       if(url.endsWith('/input_tokens')) return Response.json({input_tokens:450});
@@ -164,9 +165,10 @@ describe('connected Worker API and D1',()=>{
       expect((await staff.send('/staff/explain','POST',ref)).status).toBe(502);
       const unchanged=await json<Comparison>(await staff.send('/staff/compare','POST',scenario));
       expect(unchanged).toEqual({...comparison,calculatedAt:unchanged.calculatedAt});
-      responseBody.referencedOptionIds=[siteId];
-      expect(await (await staff.send('/staff/explain','POST',ref)).json()).toEqual(responseBody);
-      expect(await (await staff.send('/staff/compare','POST',scenario)).json()).toMatchObject({explanation:responseBody});
+      responseBody.referencedOptionIds=[siteId,siteId];
+      const explanation={...responseBody,referencedOptionIds:[siteId],highlightedOptionIds:[siteId]};
+      expect(await (await staff.send('/staff/explain','POST',ref)).json()).toEqual(explanation);
+      expect(await (await staff.send('/staff/compare','POST',scenario)).json()).toMatchObject({explanation});
       expect(openai).toHaveBeenCalledTimes(4);
     } finally {
       vi.unstubAllGlobals();

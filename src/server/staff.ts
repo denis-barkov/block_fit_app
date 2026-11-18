@@ -77,5 +77,5 @@ staff.post('/explain',async c => {
   if (!await throttle(c.env.DB,`ai:${c.get('user').id}`,12)) problem(429,'Too many requests. Try again shortly.');
   const {scenario,revision} = await body(c,reference);
   const result = await comparison(c.env.DB,scenario,isTest(c),revision);
-  return c.json(await explain(c.env,result));
+  return c.json(await explain(c.env,result,fetch,c.get('requestId')));
 });

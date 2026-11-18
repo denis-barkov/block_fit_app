@@ -7,8 +7,9 @@ import { stmt } from './database';
 import type { Comparison } from './planning';
 import { problem, type Env } from './web';
 
-const { $schema, ...outputSchema } = z.toJSONSchema(explanationSchema);
-const schemaVersion = 2;
+const providerExplanationSchema = explanationSchema.omit({highlightedOptionIds:true});
+const { $schema, ...outputSchema } = z.toJSONSchema(providerExplanationSchema);
+const schemaVersion = 3;
 const generation = {store:false,service_tier:'default',max_output_tokens:ai.outputTokens} as const;
 
 export function explanationRequest(env: Env, comparison: Comparison) {
@@ -28,23 +29,24 @@ export async function explanationCacheKey(revision: number, request: ReturnType<
   return Array.from(new Uint8Array(digest),byte => byte.toString(16).padStart(2,'0')).join('');
 }
 
-function validatedExplanation(content: string, snapshot: ReturnType<typeof comparisonSnapshot>): Explanation | undefined {
-  if (content.length > 6_000) return;
-  try {
-    const result = explanationSchema.parse(JSON.parse(content));
-    const sections = [result.summary,result.tradeoffs,result.checks].map(section => section.trim());
-    if (!sections[0] || sections.some(section => section.length > 1200) ||
-        sections.filter(Boolean).join(' ').split(/\s+/).length > ai.outputWords) return;
-    const expected = snapshot.ranking.highlightedOptionIds;
-    const actual = [...result.highlightedOptionIds].sort();
-    if (actual.length !== expected.length || actual.some((id,index) => id !== expected[index])) return;
-    const knownIds = new Set(snapshot.options.map(option => option.id));
-    const referenced = new Set(result.referencedOptionIds);
-    if (referenced.size !== result.referencedOptionIds.length ||
-        result.referencedOptionIds.some(id => !knownIds.has(id)) ||
-        expected.some(id => !referenced.has(id))) return;
-    return {...result,summary:sections[0],tradeoffs:sections[1],checks:sections[2]};
-  } catch { /* Invalid provider output. */ }
+function parseExplanation(content: string, snapshot: ReturnType<typeof comparisonSnapshot>) {
+  if (content.length > 6_000) return {reason:'response_size'} as const;
+  let value: unknown;
+  try { value = JSON.parse(content); }
+  catch { return {reason:'invalid_json'} as const; }
+  const parsed = providerExplanationSchema.safeParse(value);
+  if (!parsed.success) return {reason:'invalid_shape'} as const;
+  const result = parsed.data;
+  const sections = [result.summary,result.tradeoffs,result.checks].map(section => section.trim());
+  if (!sections[0]) return {reason:'empty_summary'} as const;
+  if (sections.some(section => section.length > 1200) ||
+      sections.filter(Boolean).join(' ').split(/\s+/).length > ai.outputWords) return {reason:'length_limit'} as const;
+  const knownIds = new Set(snapshot.options.map(option => option.id));
+  if (result.referencedOptionIds.some(id => !knownIds.has(id))) return {reason:'unknown_option'} as const;
+  const providerOutput = {summary:sections[0],tradeoffs:sections[1],checks:sections[2],
+    referencedOptionIds:[...new Set(result.referencedOptionIds)]};
+  const explanation: Explanation = {...providerOutput,highlightedOptionIds:snapshot.ranking.highlightedOptionIds};
+  return {explanation,providerOutput} as const;
 }
 
 export async function cachedExplanation(env: Env, comparison: Comparison) {
@@ -54,14 +56,14 @@ export async function cachedExplanation(env: Env, comparison: Comparison) {
   if (!withinInputLimit(request)) return;
   const record = await stmt(env.DB,'SELECT result FROM ai_jobs WHERE key=? AND expires>? AND result IS NOT NULL',
     await explanationCacheKey(comparison.revision,request),Date.now()).first<{result:string}>();
-  return record ? validatedExplanation(record.result,request.snapshot) : undefined;
+  return record ? parseExplanation(record.result,request.snapshot).explanation : undefined;
 }
 
 function withinInputLimit({payload}: ReturnType<typeof explanationRequest>) {
   return new TextEncoder().encode(JSON.stringify(payload)).length <= ai.inputBytes;
 }
 
-export async function explain(env: Env, comparison: Comparison, provider: typeof fetch = fetch) {
+export async function explain(env: Env, comparison: Comparison, provider: typeof fetch = fetch, requestId?: string) {
   const pricing = [env.AI_BUDGET_MICROUSD,env.AI_INPUT_MICROUSD_PER_MILLION,env.AI_OUTPUT_MICROUSD_PER_MILLION]
     .map(value => /^\d+$/.test(value ?? '') ? Number(value) : 0);
   if (env.AI_ENABLED !== 'true' || !env.OPENAI_API_KEY || !pricing.every(value => Number.isSafeInteger(value) && value > 0 && value <= 1e12)) {
@@ -83,7 +85,7 @@ export async function explain(env: Env, comparison: Comparison, provider: typeof
   const prior = await stmt(db,'SELECT result FROM ai_jobs WHERE key=? AND expires>?',key,Date.now()).first<{result:string|null}>();
   if (prior) {
     if (!prior.result) problem(409,'An explanation is already being prepared. Try again shortly.');
-    const explanation = validatedExplanation(prior.result,snapshot);
+    const {explanation} = parseExplanation(prior.result,snapshot);
     if (explanation) return explanation;
     await stmt(db,'DELETE FROM ai_jobs WHERE key=? AND result=?',key,prior.result).run();
   }
@@ -137,17 +139,20 @@ export async function explain(env: Env, comparison: Comparison, provider: typeof
     problem(502,'The provider exceeded the configured token bounds. AI has been disabled.');
   }
   const items = Array.isArray(value.output) ? value.output : [];
-  const content = items.flatMap(item => Array.isArray(item?.content) ? item.content : [])
-    .find(item => item?.type === 'output_text')?.text;
-  const explanation = value.status === 'completed' && typeof content === 'string'
-    ? validatedExplanation(content,snapshot) : undefined;
+  const parts = items.flatMap(item => Array.isArray(item?.content) ? item.content : []);
+  const content = parts.find(item => item?.type === 'output_text')?.text;
+  const parsed = value.status !== 'completed' ? {reason:'response_incomplete'} as const
+    : parts.some(item => item?.type === 'refusal') ? {reason:'provider_refusal'} as const
+    : typeof content !== 'string' ? {reason:'missing_output'} as const
+    : parseExplanation(content,snapshot);
+  const accepted = 'explanation' in parsed && parsed.explanation ? parsed : undefined;
   const [revision] = await db.batch<{value:number}>([
     stmt(db,'SELECT value FROM revision WHERE id=1'),
     stmt(db,`UPDATE ai_jobs SET reserved=?,
       result=CASE WHEN (SELECT value FROM revision WHERE id=1)=? THEN ? ELSE NULL END,
       expires=CASE WHEN ? IS NOT NULL AND (SELECT value FROM revision WHERE id=1)=? THEN ? ELSE ? END
       WHERE key=? AND started=?`,
-      charge,comparison.revision,explanation?JSON.stringify(explanation):null,explanation?1:null,
+      charge,comparison.revision,accepted?JSON.stringify(accepted.providerOutput):null,accepted?1:null,
       comparison.revision,now+ai.cacheDays*86_400_000,Date.now(),key,now),
     stmt(db,`DELETE FROM ai_jobs WHERE key IN (SELECT key FROM ai_jobs WHERE result IS NOT NULL
       ORDER BY started DESC,key LIMIT 20 OFFSET ?)`,ai.cacheEntries),
@@ -155,6 +160,12 @@ export async function explain(env: Env, comparison: Comparison, provider: typeof
       new Date(now-8*86_400_000).toISOString().slice(0,10)),
   ]);
   if (revision.results[0].value !== comparison.revision) problem(409,'Data changed during generation. Refresh the comparison.');
-  if (!explanation) problem(502,'The provider returned an invalid explanation.');
-  return explanation;
+  if (!accepted) {
+    console.warn(JSON.stringify({level:'warn',operation:'ai_explanation_rejected',requestId,reason:parsed.reason}));
+    const message = parsed.reason === 'response_incomplete' ? 'The provider did not finish the explanation. Try again.'
+      : parsed.reason === 'provider_refusal' ? 'The provider declined to explain this comparison.'
+      : 'The provider returned an invalid explanation.';
+    problem(502,message);
+  }
+  return accepted.explanation;
 }

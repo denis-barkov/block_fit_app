@@ -9,7 +9,8 @@ import {database} from './database';
 
 const scenario:Scenario={category:'pull-up',radius:planning.radius,horizon:planning.horizon,budget:planning.budget,selected:[]};
 const output={summary:'No option qualifies for a highlight in this comparison.',tradeoffs:'',checks:'',
-  highlightedOptionIds:[],referencedOptionIds:[]};
+  referencedOptionIds:[]};
+const explanation={...output,highlightedOptionIds:[]};
 const success={status:'completed',usage:{input_tokens:500,output_tokens:100},
   output:[{content:[{type:'output_text',text:JSON.stringify(output)}]}]};
 let proxy:Awaited<ReturnType<typeof database>>;
@@ -66,9 +67,9 @@ const spent=()=>db.prepare('SELECT spent FROM ai_total WHERE id=1').first<number
 
 it('checks tokens and caches a bounded aggregate without spending twice',async()=>{
   const fake=provider();
-  expect(await explain(env,result,fake.fetch)).toEqual(output);
-  expect(await explain(env,result,fake.fetch)).toEqual(output);
-  expect(await cachedExplanation(env,result)).toEqual(output);
+  expect(await explain(env,result,fake.fetch)).toEqual(explanation);
+  expect(await explain(env,result,fake.fetch)).toEqual(explanation);
+  expect(await cachedExplanation(env,result)).toEqual(explanation);
   expect(fake.calls).toEqual(['count','generation']);
   expect(await spent()).toBe(700);
   const newRevision=await revise();
@@ -144,6 +145,22 @@ it('rejects invalid snapshot before a call, validates output IDs and bounds, and
     await expect(explain(env,{...comparison},bad.fetch)).rejects.toMatchObject({status:502});
     expect(await cachedExplanation(env,comparison)).toBeUndefined();
   }
-  expect(await explain(env,comparison,fake.fetch)).toEqual(output);
+  expect(await explain(env,comparison,fake.fetch)).toEqual(explanation);
   expect(await spent()).toBe(initial+4*700);
+});
+
+it('distinguishes incomplete and refused responses and logs only safe reason codes',async()=>{
+  const comparison=await revise();
+  const warn=vi.spyOn(console,'warn').mockImplementation(()=>{});
+  try {
+    const incomplete=provider({response:{...success,status:'incomplete'}});
+    await expect(explain(env,comparison,incomplete.fetch,'test-request')).rejects.toThrow('did not finish');
+    const refused=provider({response:{...success,output:[{content:[{type:'refusal',refusal:'private fixture'}]}]}});
+    await expect(explain(env,comparison,refused.fetch,'test-request')).rejects.toThrow('declined');
+    expect(warn.mock.calls.map(([entry])=>JSON.parse(entry))).toEqual([
+      {level:'warn',operation:'ai_explanation_rejected',requestId:'test-request',reason:'response_incomplete'},
+      {level:'warn',operation:'ai_explanation_rejected',requestId:'test-request',reason:'provider_refusal'},
+    ]);
+    expect(await cachedExplanation(env,comparison)).toBeUndefined();
+  } finally {warn.mockRestore();}
 });

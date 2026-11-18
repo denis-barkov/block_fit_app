@@ -2,7 +2,7 @@
 
 BlockFit NYC helps City staff compare outdoor fitness investments using resident requests, existing equipment coverage, and transparent cost assumptions. Residents can find equipment, check what is known about access, and request what is missing near a private location. Staff can maintain the inventory, model candidate sites under a budget, and export a comparison brief.
 
-The 0.0.4 local beta uses a Forest Hills, Queens demonstration dataset with 81 synthetic request origins, 15 illustrative equipment records, and eight candidate sites. Demo verification and cost assumptions are simulated. BlockFit NYC is an NYCEDC project concept. A recorded request can inform planning discussion, and City approval and funding follow existing processes.
+The 0.0.5 local beta uses a Forest Hills, Queens demonstration dataset with 81 synthetic request origins, 15 illustrative equipment records, and eight candidate sites. Demo verification and cost assumptions are simulated. BlockFit NYC is an NYCEDC project concept. A recorded request can inform planning discussion, and City approval and funding follow existing processes.
 
 ## Run locally
 
