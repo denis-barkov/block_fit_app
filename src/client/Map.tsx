@@ -7,11 +7,11 @@ import type { Coordinate } from '../contracts';
 
 export type Pin = Coordinate & {
   id:string; label:string; kind:'equipment'|'candidate'|'synthetic'|'private'|'reference';
-  short?:string; onSelect?:()=>void; onMove?:(point:Coordinate)=>void; selected?:boolean;
+  covered?:boolean; short?:string; onSelect?:()=>void; onMove?:(point:Coordinate)=>void; selected?:boolean;
 };
-type Props={pins:Pin[]; overlays?:{point:Coordinate;radius:number}[]; onPick?:(point:Coordinate)=>void; label:string};
+type Props={pins:Pin[]; overlays?:{point:Coordinate;radius:number}[]; onPick?:(point:Coordinate)=>void; label:string;overview?:boolean};
 const valid=(point:Coordinate)=>Number.isFinite(point.lat)&&Number.isFinite(point.lng);
-export default function MapView({pins,overlays=[],onPick,label}: Props) {
+export default function MapView({pins,overlays=[],onPick,label,overview}: Props) {
   const container=useRef<HTMLDivElement>(null);
   const map=useRef<MapInstance|null>(null);
   const module=useRef<typeof import('maplibre-gl')|null>(null);
@@ -34,6 +34,10 @@ export default function MapView({pins,overlays=[],onPick,label}: Props) {
         maxBounds:[[pilot.bounds.west-.01,pilot.bounds.south-.01],[pilot.bounds.east+.01,pilot.bounds.north+.01]],
         scrollZoom:false,
       });
+      if(overview) {
+        const {west,south,east,north}=pilot.demoOverview;
+        view.fitBounds([[west,south],[east,north]],{padding:28,maxZoom:14.5,duration:0});
+      }
       map.current=view;
       view.addControl(new lib.NavigationControl({showCompass:false}),'top-right');
       view.on('load',()=>{
@@ -59,6 +63,7 @@ export default function MapView({pins,overlays=[],onPick,label}: Props) {
       const node=document.createElement(pin.onSelect || pin.onMove ? 'button' : 'span');
       if (node instanceof HTMLButtonElement) node.type='button';
       node.className='map-marker'; node.dataset.kind=pin.kind;
+      if(pin.covered)node.dataset.covered='true';
       node.setAttribute('aria-label',pin.label);
       if (pin.onSelect) node.setAttribute('aria-pressed',String(!!pin.selected));
       node.textContent=pin.short ?? '';

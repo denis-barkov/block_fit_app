@@ -43,7 +43,7 @@ test('map pin and list share selection with an offline vector style',async({page
   await bench.click();
   await expect(page.getByRole('article',{name:'Selected equipment'})).toContainText('Standalone sit-up bench');
   await expect(bench).toHaveAttribute('aria-pressed','true');
-  await page.getByRole('button',{name:/West court pull-up bars.*Verification recorded/}).click();
+  await page.getByRole('button',{name:/West court pull-up bars.*Simulated verification/}).click();
   await expect(map.getByRole('button',{name:'West court pull-up bars'})).toHaveAttribute('aria-pressed','true');
 });
 test('mobile registration preserves the selected category and persists the resident lifecycle',async({page})=>{
@@ -51,20 +51,22 @@ test('mobile registration preserves the selected category and persists the resid
   await allowFallback(page);
   await page.goto('/');
   await page.getByLabel('Equipment type').selectOption('parallel');
+  await page.getByRole('button',{name:/East court parallel bars/}).click();
   await expect(page.getByRole('article',{name:'Selected equipment'})).toContainText('East court parallel bars');
   await page.getByRole('button',{name:'Request this equipment nearby'}).click();
-  let dialog=page.getByRole('dialog');
-  await dialog.getByRole('button',{name:'Forgot password?'}).click();
-  await expect(dialog).toContainText('Never send your password.');
-  await expect(dialog.getByRole('link',{name:'Contact us'})).toHaveAttribute('href','mailto:contact@blockfit.example');
-  await dialog.getByRole('button',{name:'Back to sign in'}).click();
-  await dialog.getByRole('button',{name:'Create resident account'}).click();
-  await dialog.getByLabel('Display name').fill('Mobile test');
-  await dialog.getByLabel('Email').fill('browser-resident@blockfit.example');
-  await dialog.getByLabel('Password',{exact:true}).fill(passphrase);
-  await dialog.getByLabel('Confirm password').fill(passphrase);
-  await dialog.getByRole('button',{name:'Register'}).press('Enter');
-  dialog=page.getByRole('dialog',{name:'Confirm private request origin'});
+  await expect(page).toHaveURL(/\/login\?returnTo=/);
+  const auth=page.getByRole('main');
+  await auth.getByRole('button',{name:'Forgot password?'}).click();
+  await expect(auth).toContainText('Never send your password.');
+  await expect(auth.getByRole('link',{name:'Contact us'})).toHaveAttribute('href','mailto:contact@blockfit.example');
+  await auth.getByRole('button',{name:'Back to sign in'}).click();
+  await auth.getByRole('button',{name:'Create resident account'}).click();
+  await auth.getByLabel('Display name').fill('Mobile test');
+  await auth.getByLabel('Email').fill('browser-resident@blockfit.example');
+  await auth.getByLabel('Password',{exact:true}).fill(passphrase);
+  await auth.getByLabel('Confirm password').fill(passphrase);
+  await auth.getByRole('button',{name:'Register'}).press('Enter');
+  let dialog=page.getByRole('dialog',{name:'Confirm private request origin'});
   await dialog.getByLabel('Location label (optional)').fill('Demo pin');
   await dialog.getByRole('checkbox').check();
   await dialog.getByRole('button',{name:'Save location'}).press('Enter');
@@ -92,19 +94,39 @@ test('mobile registration preserves the selected category and persists the resid
   await expect(page.getByRole('heading',{name:'Find outdoor fitness equipment.'})).toBeVisible();
 });
 test('staff can compare and download on desktop and manage inventory on mobile',async({page})=>{
-  await allowFallback(page);
+  await page.route('https://tiles.openfreemap.org/styles/liberty',route=>route.fulfill({json:{
+    version:8,sources:{},layers:[{id:'background',type:'background',paint:{'background-color':'#dbece2'}}],
+  }}));
   const {staff}=credentials();
   await page.goto('/city');
-  await page.getByRole('button',{name:'Sign in'}).click();
-  const dialog=page.getByRole('dialog');
-  await dialog.getByLabel('Email').fill(staff.email);
-  await dialog.getByLabel('Password',{exact:true}).fill(staff.password);
-  await dialog.getByRole('button',{name:'Sign in',exact:true}).press('Enter');
+  await expect(page).toHaveURL(/\/staff\/login/);
+  await expect(page.getByRole('heading',{name:'City staff sign in'})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Create resident account'})).toHaveCount(0);
+  await page.getByLabel('Email').fill(staff.email);
+  await page.getByLabel('Password',{exact:true}).fill(staff.password);
+  await page.getByRole('button',{name:'Sign in',exact:true}).press('Enter');
   await expect(page.getByRole('heading',{name:'Where could investment improve access?'})).toBeVisible();
-  await page.getByRole('checkbox',{name:'Central courtyard A'}).check();
+  await expect(page.getByRole('navigation',{name:'Staff navigation'})).toContainText('Manage inventory');
+  await expect(page.getByText('My requests',{exact:true})).toHaveCount(0);
+  const map=page.getByRole('region',{name:'Staff coverage map'});
+  await map.getByRole('button',{name:/Central courtyard A/}).click();
+  await expect(page.getByRole('article',{name:'Candidate details'})).toContainText('Central courtyard A');
+  await page.getByRole('button',{name:'Add to combination'}).click();
   await page.getByRole('checkbox',{name:'Central courtyard B'}).check();
   await page.getByRole('button',{name:'Compare sites'}).click();
-  await expect(page.getByRole('row',{name:/Central courtyard A \+ Central courtyard B/})).toContainText('Over budget');
+  const combination=page.getByRole('row',{name:/Central courtyard A.*Central courtyard B/});
+  await expect(combination).toContainText('Over budget');
+  await expect(combination).toContainText('in overlapping radii, counted once');
+  await page.getByRole('table').getByRole('button',{name:/Central courtyard B/}).press('Enter');
+  await expect(map.getByRole('button',{name:/Central courtyard B/})).toHaveAttribute('aria-pressed','true');
+  await expect(page.getByRole('article',{name:'Candidate details'})).toContainText('Central courtyard B');
+  await expect(page.getByText('already covered',{exact:false}).first()).toBeVisible();
+  const eligible=await map.locator('[data-kind=equipment]').evaluateAll(nodes=>nodes.map(node=>node.getBoundingClientRect().toJSON()));
+  const covered=await map.locator('[data-kind=synthetic][data-covered=true]').evaluateAll(nodes=>nodes.map(node=>node.getBoundingClientRect().toJSON()));
+  expect(covered.length).toBeGreaterThan(0);
+  expect(covered.every(point=>eligible.some(pin=>Math.hypot(point.x+point.width/2-pin.x-pin.width/2,
+    point.y+point.height/2-pin.y-pin.height/2)<70))).toBe(true);
+  await map.screenshot({path:test.info().outputPath('staff-map.png')});
   await page.getByRole('button',{name:'Request AI explanation'}).click();
   await expect(page.getByRole('alert')).toContainText('AI is unavailable.');
   const download=page.waitForEvent('download');
@@ -112,7 +134,14 @@ test('staff can compare and download on desktop and manage inventory on mobile',
   expect((await download).suggestedFilename()).toBe('blockfit-comparison.md');
   await page.setViewportSize({width:390,height:844});
   await noPageOverflow(page);
+  await page.getByRole('link',{name:'View public site'}).click();
+  await expect(page.getByRole('link',{name:'Return to City workspace'})).toBeVisible();
+  await expect(page.getByRole('button',{name:/Request .*equipment/})).toHaveCount(0);
+  await expect(page.getByRole('link',{name:'My requests'})).toHaveCount(0);
+  await page.getByRole('link',{name:'Return to City workspace'}).click();
+  await page.getByRole('link',{name:'Manage inventory'}).click();
   await page.getByRole('button',{name:'Add equipment'}).click();
+  const dialog=page.getByRole('dialog');
   await dialog.getByLabel('Name',{exact:true}).fill('Browser equipment');
   await dialog.getByRole('button',{name:'Save equipment'}).click();
   await expect(page.getByText('Inventory saved.')).toBeVisible();
@@ -138,4 +167,43 @@ test('staff can compare and download on desktop and manage inventory on mobile',
   await dialog.getByRole('button',{name:'Confirm archive'}).click();
   await expect(page.getByRole('button',{name:'Edit Browser candidate revised'})).toHaveCount(0);
   await noPageOverflow(page);
+});
+
+
+test('ordinary login sends staff to the workspace and back navigation respects logout',async({page})=>{
+  await allowFallback(page);
+  const {staff}=credentials();
+  await page.goto('/login?returnTo=https%3A%2F%2Fexample.invalid%2F');
+  await page.getByLabel('Email').fill(staff.email);
+  await page.getByLabel('Password',{exact:true}).fill(staff.password);
+  await page.getByRole('button',{name:'Sign in',exact:true}).click();
+  await expect(page).toHaveURL(/\/staff$/);
+  await page.getByRole('link',{name:'Manage inventory'}).click();
+  await expect(page).toHaveURL(/\/staff\/inventory$/);
+  await page.getByRole('button',{name:'Sign out'}).click();
+  await expect(page.getByRole('heading',{name:'City staff sign in'})).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole('heading',{name:'City staff sign in'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Where could investment improve access?'})).toHaveCount(0);
+});
+
+test('resident sign-in at the staff entry shows a role mismatch and survives mobile navigation',async({page})=>{
+  await allowFallback(page);
+  const {resident}=credentials();
+  await page.setViewportSize({width:390,height:844});
+  await page.goto('/staff/login');
+  await page.getByLabel('Email').fill(resident.email);
+  await page.getByLabel('Password',{exact:true}).fill(resident.password);
+  await page.getByRole('button',{name:'Sign in',exact:true}).press('Enter');
+  await expect(page.getByRole('heading',{name:'Staff access required'})).toBeVisible();
+  await expect(page.getByRole('link',{name:'Manage inventory'})).toHaveCount(0);
+  await page.getByRole('link',{name:'Resident sign-in'}).press('Enter');
+  await expect(page.getByRole('heading',{name:'My requests'})).toBeVisible();
+  await expect(page.getByRole('navigation',{name:'Public navigation'})).toContainText('My requests');
+  await expect(page.getByRole('link',{name:'City staff sign in'})).toHaveCount(0);
+  await noPageOverflow(page);
+  await page.context().clearCookies();
+  await page.reload();
+  await expect(page.getByRole('heading',{name:'Resident sign in'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'My requests'})).toHaveCount(0);
 });

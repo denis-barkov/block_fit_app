@@ -111,7 +111,7 @@ describe('connected Worker API and D1',()=>{
     const {id:equipmentId}=await json<{id:string}>(createEquipment);
     const visible=await json<PublicEquipment[]>(await client().send('/inventory?category=pull-up&q=test'));
     expect(visible).toMatchObject([{name:'Test bars',park:null}]);
-    expect(Object.keys(visible[0]).sort()).toEqual(['id','name','lat','lng','category','condition','access','source','verifiedOn','park'].sort());
+    expect(Object.keys(visible[0]).sort()).toEqual(['id','name','lat','lng','category','condition','access','source','verifiedOn','park','fixture'].sort());
     expect((await json<Comparison>(await staff.send('/staff/compare','POST',scenario))).unmet).toBe(0);
     expect((await staff.send('/staff/export','POST',ref)).status).toBe(409);
     expect((await staff.send('/staff/inventory/equipment/'+equipmentId,'PUT',{...inventory,lat:95})).status).toBe(400);

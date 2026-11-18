@@ -6,7 +6,7 @@ import { Categories, Feedback, Field, message } from './common';
 
 const MapView=lazy(()=>import('./Map'));
 const maintenance='https://portal.311.nyc.gov/article/?kanumber=KA-01060';
-export default function Public({request}: {request:(category:Category)=>void}) {
+export default function Public({request}: {request?: (category:Category)=>void}) {
   const [category,setCategory]=useState<Category|''>('');
   const [search,setSearch]=useState('');
   const [query,setQuery]=useState('');
@@ -61,7 +61,9 @@ export default function Public({request}: {request:(category:Category)=>void}) {
                 onClick={()=>setSelected(item.id)} aria-pressed={selected===item.id}>
                 <span className="block font-bold">{item.name}</span>
                 <span className="block text-sm muted">{categories[item.category]} · {item.park?.name||'Standalone equipment'}</span>
-                <span className={`tag mt-2 ${item.verifiedOn?'':'unverified'}`}>{item.verifiedOn?'Verification recorded':'Unverified'}</span>
+                <span className={`tag mt-2 ${item.verifiedOn?'':'unverified'}`}>{item.fixture && item.verifiedOn?'Simulated verification':item.verifiedOn?'Verification recorded':'Unverified'}</span>
+                {item.access!=='public' && <span className="tag unverified ml-2">{item.access==='restricted'?'Restricted access':'Public access unknown'}</span>}
+                {item.fixture && <span className="ml-2 text-xs muted">Illustrative demo equipment</span>}
                 {distance!==null && <span className="ml-2 text-xs muted">{Math.round(distance)} m straight-line</span>}
               </button>
             </li>)}
@@ -83,23 +85,23 @@ export default function Public({request}: {request:(category:Category)=>void}) {
               ...(reference?[{...reference,kind:'reference' as const,id:'reference',label:'Reference point',short:'•'}]:[])]}/>
           </Suspense>
           {item && <article className="rounded-control border border-line p-4" aria-label="Selected equipment">
-            <h3>{item.name}</h3><p className="text-sm muted">{categories[item.category]} · {item.park?.name||'Standalone equipment'}</p>
+            <h3>{item.name}</h3>{item.fixture && <span className="tag">Illustrative demo equipment</span>}<p className="text-sm muted">{categories[item.category]} · {item.park?.name||'Standalone equipment'}</p>
             <dl className="my-4 grid gap-3 text-sm sm:grid-cols-2">
-              {Object.entries({Verification:item.verifiedOn||'Unverified',Condition:item.condition,
+              {Object.entries({Verification:item.fixture&&item.verifiedOn?`Simulated · ${item.verifiedOn}`:item.verifiedOn||'Unverified',Condition:item.condition,
                 'Public access':item.access,Hours:item.park?.hours||'Unknown',Source:item.source||'Unknown'})
                 .map(([key,value])=><div key={key}><dt className="font-bold">{key}</dt><dd>{value}</dd></div>)}
             </dl>
             <div className="flex flex-wrap gap-2">
-              <button className="button" onClick={()=>request(item.category)}>Request this equipment nearby</button>
+              {request && <button className="button" onClick={()=>request(item.category)}>Request this equipment nearby</button>}
               {item.park?.cityMaintained && <a className="button" target="_blank" rel="noreferrer" href={maintenance}>Report a City park problem ↗</a>}
             </div>
           </article>}
         </section>
       </div>
-      <section className="panel flex flex-wrap items-center justify-between gap-4">
+      {request && <section className="panel flex flex-wrap items-center justify-between gap-4">
         <div><h2>Missing something nearby?</h2><p className="muted">Your request can inform future investment comparisons.</p></div>
         <button className="button primary" onClick={()=>request(category||item?.category||'pull-up')}>Request equipment nearby</button>
-      </section>
+      </section>}
     </div>
   </main>;
 }

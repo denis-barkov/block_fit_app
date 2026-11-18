@@ -87,8 +87,8 @@ function resolvedSecrets(env) {
   }
   return secrets;
 }
-export function secretsFile(env) {
-  const path=resolve(state,env.DEPLOYMENT+'.secrets.json');
+export function secretsFile(env,config) {
+  const path=resolve(dirname(config),env.DEPLOYMENT+'.secrets.json');
   writeFileSync(path,JSON.stringify(resolvedSecrets(env))+'\n',{mode:0o600});
   return path;
 }

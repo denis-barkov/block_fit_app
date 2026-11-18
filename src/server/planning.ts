@@ -30,10 +30,14 @@ export function compare(scenario: Scenario, demand: DemandOrigin[], existing: Co
   const lngDelta = scenario.radius / 80_000;
   const within = (a: Coordinate,b: Coordinate) =>
     Math.abs(a.lat-b.lat)<=latDelta && Math.abs(a.lng-b.lng)<=lngDelta && metres(a,b)<=scenario.radius;
-  const unmet = requesters.filter(origin => !existing.some(pin => within(origin,pin)));
+  const covered=new Set(requesters.filter(origin=>existing.some(pin=>within(origin,pin))).map(origin=>origin.id));
+  const unmet=requesters.filter(origin=>!covered.has(origin.id));
   const coverage = new Map(candidates.map(site => [site.id, unmet.filter(origin => within(origin,site)).map(origin => origin.id)]));
   const calculateOption = (sites: Candidate[]) => {
-    const count = new Set(sites.flatMap(site => coverage.get(site.id) ?? [])).size;
+    const hits=new Map<string,number>();
+    for (const site of sites) for (const id of coverage.get(site.id) ?? []) hits.set(id,(hits.get(id)??0)+1);
+    const count=hits.size;
+    const overlap=[...hits.values()].filter(hit=>hit>1).length;
     const estimates = Object.fromEntries(levels.map(level => {
       const costs = sites.map(site => calculateCosts(site.costs,scenario.horizon,level));
       const upfront = sum(costs.map(cost => cost.upfront));
@@ -41,7 +45,7 @@ export function compare(scenario: Scenario, demand: DemandOrigin[], existing: Co
       return [level, { upfront, lifecycle, fits: upfront === null ? null : upfront <= scenario.budget,
         perRequester: count && lifecycle !== null ? lifecycle / count : null }];
     })) as Record<Level, { upfront: number | null; lifecycle: number | null; fits: boolean | null; perRequester: number | null }>;
-    const feasibility = sites.some(site => site.feasibility === 'excluded') ? 'excluded'
+    const feasibility:Candidate['feasibility'] = sites.some(site => site.feasibility === 'excluded') ? 'excluded'
       : sites.every(site => site.feasibility === 'suitable-for-comparison') ? 'suitable-for-comparison' : 'unreviewed';
     const missing = sites.flatMap(site => {
       const absent: string[] = [...upfrontKeys,'maintenance'].filter(key => site.costs[key as keyof Costs] === null);
@@ -51,7 +55,7 @@ export function compare(scenario: Scenario, demand: DemandOrigin[], existing: Co
           site.costs.interval < scenario.horizon && site.costs.replacement === null) absent.push('replacement cost');
       return absent.map(key => ({ site: site.id, key }));
     });
-    return { ids: sites.map(site => site.id), count, estimates, feasibility, missing };
+    return { ids: sites.map(site => site.id), count, overlap, estimates, feasibility, missing };
   };
   const selected = scenario.selected.map(id => candidates.find(site => site.id === id));
   if (selected.some(site => !site || site.feasibility === 'excluded')) return null;
@@ -68,24 +72,34 @@ export function compare(scenario: Scenario, demand: DemandOrigin[], existing: Co
     !lowest || relativeCost(option,lowest)<0n ? option : lowest,undefined);
   const highlighted = best ? qualified.filter(option=>relativeCost(option,best)===0n)
     .map(option=>option.ids.join(',')) : [];
-  return { options, demandCount: requesters.length, unmet: unmet.length, highlighted };
+  return { options, covered, demandCount: requesters.length, unmet: unmet.length, highlighted };
 }
 
-export type Comparison = NonNullable<ReturnType<typeof compare>> & {
-  scenario: Scenario; revision: number; calculatedAt: string; sites: Candidate[]; origins: (Coordinate & {synthetic: boolean})[];
-  existing: Coordinate[]; inventorySources: string[];
+export type Comparison = Omit<NonNullable<ReturnType<typeof compare>>,'covered'> & {
+  testWorkspace?: boolean;
+  scenario: Scenario; revision: number; calculatedAt: string; sites: Candidate[]; origins: (Coordinate & {synthetic: boolean; covered?:boolean})[];
+  existing: (Coordinate & {fixture?:boolean})[]; inventorySources: string[];
 };
 
+export const newlyCovered = 'Newly covered requesters lack eligible existing coverage and fall within the candidate radius. A combination counts each requester once.';
+export const screening = 'Suitable for comparison means the option passed an analytical screening step. Ownership, permission to build, and funding require separate review.';
+export const ranking = 'Highlights consider fully costed, suitable options with positive coverage within the base upfront budget. Equal lowest values share the highlight.';
+export const feasibilityLabels = {unreviewed:'Unreviewed','suitable-for-comparison':'Suitable for comparison',excluded:'Excluded'};
 export const interpretation = 'Recorded participation does not measure population need or verify unique people. Unknown inventory may overstate unmet demand. This comparison does not establish realized savings, land availability, or installation approval.';
 const clean = (value: string) => value.replace(/[\r\n\u0000-\u001f\u007f]/g, ' ').replace(/[\\`*_{}\[\]()#+.!|<>~]/g, '\\$&');
 const money = (cents: number | null) => cents === null ? 'N/A' : new Intl.NumberFormat('en-US', {style:'currency',currency:'USD'}).format(cents/100);
 export function makeBrief(result: Comparison, explanation?: import('../contracts').Explanation) {
   const { scenario } = result;
+  const syntheticCount=result.origins.filter(origin=>origin.synthetic).length;
   const lines = [
     '# BlockFit NYC investment comparison', '',
     `Equipment: ${categories[scenario.category]} | Revision: ${result.revision} | Calculated: ${result.calculatedAt}`,
     `Radius: ${scenario.radius} m straight-line approximation | Horizon: ${scenario.horizon} years | Upfront budget: ${money(scenario.budget)}`,
-    `Recorded demand: ${result.demandCount} | Unmet before installation: ${result.unmet}`, '',
+    `Recorded demand: ${result.demandCount} | Already covered: ${result.demandCount-result.unmet} | Unmet before installation: ${result.unmet}`, '',
+    ...(result.testWorkspace?['Automated-test comparison. Uses isolated test requests.']:[]),
+    ...(syntheticCount?[`${syntheticCount} recorded requesters are synthetic demo origins.`]:[]),
+    ...(result.existing.some(pin=>pin.fixture)?['Eligible demo equipment uses simulated verification.']:[]),
+    newlyCovered, screening, ranking,
     'Baseline uses currently listed, verified, usable equipment with confirmed public access.',
     ...result.inventorySources.map(source => `- Inventory source: ${clean(source)}`),
     'Costs are illustrative scenarios in undiscounted constant dollars. Replacement events at horizon end are excluded.',
@@ -94,14 +108,15 @@ export function makeBrief(result: Comparison, explanation?: import('../contracts
   for (const option of result.options) {
     const sites = result.sites.filter(site => option.ids.includes(site.id));
     lines.push(`## ${sites.map(site => clean(site.name)).join(' + ')}`, '',
-      `Feasibility: ${option.feasibility} | Unique newly covered requesters: ${option.count}`);
+      `Feasibility: ${feasibilityLabels[option.feasibility]} | Unique newly covered requesters: ${option.count}`);
+    if (option.ids.length>1) lines.push(`- ${option.overlap} requester(s) fall within more than one selected radius and are counted once.`);
     if (result.highlighted.includes(option.ids.join(','))) lines.push('Lowest modeled cost per newly covered requester.');
     for (const level of levels) {
       const estimate = option.estimates[level];
       lines.push(`- ${level}: upfront ${money(estimate.upfront)} (${estimate.fits === null ? 'unknown fit' : estimate.fits ? 'inside budget' : 'over budget'}), lifecycle ${money(estimate.lifecycle)}, per requester ${money(estimate.perRequester)}`);
     }
     for (const site of sites) {
-      lines.push(`- ${clean(site.name)} source: ${clean(site.costs.source || 'Unknown')}`,
+      lines.push(`- ${clean(site.name)}${site.fixture?' (Illustrative demo candidate)':''} source: ${clean(site.costs.source || 'Unknown')}`,
         `  - ${costKeys.map(key => `${key} low/base/high ${levels.map(level => money(site.costs[key]?.[level] ?? null)).join(' / ')}`).join('; ')}`,
         `  - Replacement plan: ${site.costs.replacementPlan} | Interval: ${site.costs.interval ?? 'N/A'} years`);
       if (site.notes) lines.push(`  - Notes: ${clean(site.notes)}`);

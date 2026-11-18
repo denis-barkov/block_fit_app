@@ -13,7 +13,11 @@ For a Cloudflare restore, provision a separately named destination database befo
 
 ## Production smoke test
 
-Prepare dedicated synthetic resident and staff logins. Use a staff account created by `make staff-create ENV=prod` and a separately self-registered resident. Keep them out of meaningful demand counts. Write `.blockfit/prod-smoke.env` with mode 0600 and fill `RESIDENT_EMAIL`, `RESIDENT_PASSWORD`, `STAFF_EMAIL`, and `STAFF_PASSWORD` privately. The smoke command signs in, verifies each role’s access, requests a comparison, and signs out. It creates no demand or inventory records and dispatches no AI calls. Check Cloudflare request errors and actual authentication CPU against the target plan before opening the pilot. No plan changes happen in these workflows.
+Define one resident and one staff login with purpose `automated-test` in the target account definition. Use `.blockfit/local-smoke.env` or `.blockfit/prod-smoke.env` with mode 0600 for the protected test credentials. Set `RESIDENT_EMAIL`, `RESIDENT_PASSWORD`, `STAFF_EMAIL`, and `STAFF_PASSWORD` privately. Use unique credentials for production and keep the operator account-definition JSON free of passwords.
+
+Run `make accounts-provision ENV=prod` to preview the named changes. Once authorized, use `APPLY=yes` and confirm the deployment name. Presentation credentials are prompted separately. Existing passwords stay in effect on a repeat run. Use the separate recovery or session-revocation command for intentional changes.
+
+`make smoke-prod ENV=prod` signs in through the ordinary API, checks that both accounts have the automated-test purpose, and creates one scoped request only after checking the resident's data. The script verifies the isolated staff comparison, cleans up the run's request and any temporary location, and signs out. Existing test data and presentation inventory are preserved. Check actual authentication CPU against the target plan before opening the pilot. No plan changes happen in these workflows.
 
 ## Carry AI spend forward
 

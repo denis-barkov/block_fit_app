@@ -46,9 +46,9 @@ export const scenarioInput = z.object({
   selected: z.array(id).max(planning.combination).refine(ids => new Set(ids).size === ids.length),
 }).strict();
 export type Scenario = z.infer<typeof scenarioInput>;
-export type Park = z.infer<typeof parkInput> & { id: string };
-export type Equipment = z.infer<typeof equipmentInput> & { id: string };
-export type Candidate = z.infer<typeof candidateInput> & { id: string };
+export type Park = z.infer<typeof parkInput> & { id: string; fixture?: boolean };
+export type Equipment = z.infer<typeof equipmentInput> & { id: string; fixture?: boolean };
+export type Candidate = z.infer<typeof candidateInput> & { id: string; fixture?: boolean };
 export type PublicEquipment = Omit<Equipment, 'parkId' | 'visible'> & { park: { name: string; hours: string; cityMaintained: boolean } | null };
 export type Demand = z.infer<typeof requestInput> & Coordinate & {
   id: string; status: 'recorded' | 'withdrawn'; createdAt: string; confirmedAt: string;

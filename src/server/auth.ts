@@ -20,7 +20,10 @@ export function createAuth(config: AuthConfig) {
       requireEmailVerification: false, revokeSessionsOnPasswordReset: true,
     },
     user: {
-      additionalFields: { role: { type: 'string', required: true, input: false, defaultValue: 'resident' } },
+      additionalFields: {
+        role: { type: 'string', required: true, input: false, defaultValue: 'resident' },
+        purpose: { type: 'string', required: false, input: false },
+      },
     },
     disabledPaths: ['/request-password-reset','/reset-password','/forget-password','/change-email',
       '/send-verification-email','/verify-email','/sign-in/social','/link-social','/update-user','/delete-user'],

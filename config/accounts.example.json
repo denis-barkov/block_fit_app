@@ -1,0 +1,26 @@
+[
+  {
+    "email": "staff-presenter@blockfit.example",
+    "name": "Demo presenter",
+    "role": "staff",
+    "purpose": "presentation"
+  },
+  {
+    "email": "staff-reviewer@blockfit.example",
+    "name": "Demo reviewer",
+    "role": "staff",
+    "purpose": "presentation"
+  },
+  {
+    "email": "smoke-resident@blockfit.example",
+    "name": "Automated resident",
+    "role": "resident",
+    "purpose": "automated-test"
+  },
+  {
+    "email": "smoke-staff@blockfit.example",
+    "name": "Automated staff",
+    "role": "staff",
+    "purpose": "automated-test"
+  }
+]

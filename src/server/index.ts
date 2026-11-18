@@ -5,6 +5,7 @@ import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 import { limits } from '../../config/settings';
 import { category } from '../contracts';
+import { loginLink,residentLogin,returnPath,staffHome,staffInventoryPage,staffLogin } from '../routes';
 import { createAuth } from './auth';
 import { inventory, stmt, throttle } from './database';
 import { resident } from './resident';
@@ -51,7 +52,7 @@ app.get('/api/inventory',etag(),async c => {
 app.get('/api/me',async c => {
   const session = await createAuth(c.env).api.getSession({headers:c.req.raw.headers});
   const user = session?.user;
-  return c.json({user:user ? {id:user.id,name:user.name,email:user.email,role:user.role} : null});
+  return c.json({user:user ? {id:user.id,name:user.name,email:user.email,role:user.role,purpose:user.purpose??null} : null});
 });
 
 const login = z.object({email:z.email().max(254),password:z.string().min(1).max(limits.maxPassword)}).strict();
@@ -78,6 +79,7 @@ app.post('/api/auth/:group/:action?',async c => {
   }
   if (path !== 'sign-in/email' && path !== 'sign-up/email') problem(404,'Authentication action not available.');
   const incoming = path === 'sign-up/email' ? await body(c,register) : await body(c,login);
+  if (await auth.api.getSession({headers:c.req.raw.headers})) problem(409,'Sign out before switching accounts.');
   const email = incoming.email.toLowerCase();
   const clientIP = c.env.DEPLOYMENT === 'prod' ? c.req.header('CF-Connecting-IP') || 'unknown' : 'loopback';
   const input = new TextEncoder().encode(`${c.env.AUTH_SECRET}\0${path}\0${email}`);
@@ -104,10 +106,34 @@ app.use('/api/staff/*',async (c,next) => {
 });
 app.route('/api/staff',staff);
 app.all('/api/*',c => c.json({error:'Route not found.'},404));
-app.get('*',c => {
-  const path = c.req.path;
-  return c.env.ASSETS.fetch(path === '/requests' || path === '/city'
-    ? new Request(new URL('/',c.req.url),c.req.raw) : c.req.raw);
+app.get('*',async c => {
+  const path=c.req.path.replace(/\/$/,'')||'/';
+  if (path==='/city') return c.redirect(staffHome,302);
+  const isStaffPage=path===staffHome||path.startsWith(staffHome+'/');
+  if (!isStaffPage && !['/requests',residentLogin].includes(path)) return c.env.ASSETS.fetch(c.req.raw);
+
+  const session=await createAuth(c.env).api.getSession({headers:c.req.raw.headers});
+  const here=path+new URL(c.req.url).search;
+  const next=c.req.query('returnTo')??null;
+  c.header('Cache-Control','no-store');
+  if (isStaffPage) {
+    if (!session && path!==staffLogin) return c.redirect(loginLink('staff',here),302);
+    if (session?.user.role==='staff') {
+      if (path===staffLogin) return c.redirect(session.user.purpose==='automated-test'?staffHome:returnPath('staff',next),302);
+      if (path===staffInventoryPage && session.user.purpose==='automated-test') return c.redirect(staffHome,302);
+      if (![staffHome,staffInventoryPage].includes(path)) return c.redirect(staffHome,302);
+    }
+  } else {
+    if (!session && path==='/requests') return c.redirect(loginLink('resident',here),302);
+    if (path===residentLogin && session) {
+      return c.redirect(session.user.role==='staff'?staffHome:returnPath('resident',next),302);
+    }
+  }
+  const asset=await c.env.ASSETS.fetch(new Request(new URL('/',c.req.url),c.req.raw));
+  const headers=new Headers(asset.headers);
+  headers.set('Cache-Control','no-store');
+  const mismatch=session && (isStaffPage?session.user.role!=='staff':session.user.role!=='resident');
+  return new Response(asset.body,{status:mismatch?403:asset.status,headers});
 });
 
 export default app;

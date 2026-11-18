@@ -3,8 +3,9 @@ export const categories = {
 } as const;
 export const pilot = {
   name: 'Forest Hills, Queens',
-  center: { lat: 40.7192, lng: -73.8461 },
-  bounds: { south: 40.707, north: 40.731, west: -73.862, east: -73.831 },
+  center: { lat: 40.7202, lng: -73.8470 },
+  demoOverview: { south: 40.713, north: 40.729, west: -73.856, east: -73.839 },
+  bounds: { south: 40.706, north: 40.733, west: -73.865, east: -73.828 },
 };
 export const planning = {
   radius: 200, minRadius: 50, maxRadius: 1000, horizon: 10, maxHorizon: 50,

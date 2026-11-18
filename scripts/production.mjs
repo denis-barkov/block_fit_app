@@ -2,10 +2,10 @@ import {existsSync,mkdirSync,readFileSync,renameSync,rmSync,rmdirSync,writeFileS
 import {resolve} from 'node:path';
 import {createInterface} from 'node:readline/promises';
 import {bin,run,secretsFile,state,writeConfig} from './environment.mjs';
-import {build,migrate} from './local.mjs';
+import {build,migrate,packageWorker} from './local.mjs';
 import {applyTags,cloudflare,CloudflareError,validateAccount} from './cloudflare.mjs';
-import {maintainAccount} from './accounts.mjs';
-import {seedDataset} from './fixtures.mjs';
+import {maintainAccount,provisionAccounts} from './accounts.mjs';
+import {printDemoPlan,seedDataset} from './fixtures.mjs';
 import {dataCommand} from './snapshot.mjs';
 import {remoteDatabase} from './remote-d1.mjs';
 import {ai} from '../config/settings.ts';
@@ -47,13 +47,26 @@ async function verifyBindings(call,env,record,required=false) {
 
 export async function production(command,env,args) {
   if(!['provision','deploy','db-migrate','seed','staff-create','password-reset','session-revoke',
-    'snapshot','restore','suspend','resume','destroy','smoke-prod','ai-carry-forward'].includes(command)) {
+    'snapshot','restore','suspend','resume','destroy','smoke-prod','ai-carry-forward','seed-update','accounts-provision'].includes(command)) {
     throw new Error('This command is unavailable for prod.');
   }
   const call=cloudflare(env);
   await validateAccount(call,env);
   mkdirSync(state,{recursive:true,mode:0o700});
   const inventory=manifest(env);
+  const isDeployCommand=['provision','deploy'].includes(command);
+  if(isDeployCommand && !['','yes','no'].includes(args[0]??'')) throw new Error('Use DRY_RUN=yes for a read-only preview.');
+  const dryRun=isDeployCommand&&args[0]==='yes';
+  const printTarget=record=>console.log(`Account ${env.CLOUDFLARE_ACCOUNT_ID} · Worker ${env.resourceName} · D1 ${record?.databaseId??'new database named '+env.resourceName}`);
+  if(dryRun && command==='provision'&&!inventory.value) {
+    const found=await call('/d1/database?'+new URLSearchParams({name:env.resourceName}));
+    if(found.some(db=>db.name===env.resourceName)||await lookup(call,bindingPath(env))) {
+      throw new Error('A resource already uses this name. Recover its protected manifest or choose a new deployment suffix.');
+    }
+    printTarget(null);
+    console.log('Dry run: provision would create and migrate the named D1 database.');
+    return;
+  }
   const lock=inventory.path+'.lock';
   mkdirSync(lock,{mode:0o700});
   try {
@@ -73,7 +86,16 @@ export async function production(command,env,args) {
     if(!namedDB||namedDB.uuid!==record.databaseId||namedDB.name!==env.resourceName) {
       throw new Error('The manifest database cannot be verified in the selected account.');
     }
-    const config=writeConfig(env,{databaseId:record.databaseId});
+    const directory=inventory.path+'.runtime';
+    mkdirSync(directory,{recursive:true,mode:0o700});
+    const config=writeConfig(env,{databaseId:record.databaseId,directory});
+    if(dryRun) {
+      await verifyBindings(call,env,record);
+      printTarget(record);
+      if(command==='deploy')packageWorker(env,config);
+      else console.log('Dry run: provision would reconcile tags and apply pending migrations.');
+      return;
+    }
     const db=remoteDatabase(call,record.databaseId);
     const useDB=callback=>callback(db);
     if(command==='provision') {
@@ -85,7 +107,7 @@ export async function production(command,env,args) {
       await verifyBindings(call,env,record);
       build(env);
       migrate(env,config);
-      const privateFile=secretsFile(env);
+      const privateFile=secretsFile(env,config);
       try{run(bin('wrangler'),['deploy','--no-autoconfig','--config',config,'--secrets-file',privateFile],env);}
       finally{rmSync(privateFile,{force:true});}
       await verifyBindings(call,env,record,true);
@@ -95,6 +117,17 @@ export async function production(command,env,args) {
     else if(command==='seed') {
       if(await prompt(`Type ${env.resourceName} to add illustrative records to this production pilot: `)!==env.resourceName) throw new Error('Seed cancelled.');
       await useDB(seedDataset);
+    } else if(command==='seed-update') {
+      printTarget(record);
+      const plan=await printDemoPlan(db);
+      if(args[0]!=='yes') {console.log('Preview only. Use APPLY=yes after reviewing the plan.');return;}
+      if(plan.version>=plan.target)return;
+      if(await prompt(`Type ${env.resourceName} to replace the old demo fixture: `)!==env.resourceName) throw new Error('Fixture update cancelled.');
+      await seedDataset(db,{update:true});
+      console.log(`Demo fixture v${plan.target} installed.`);
+    } else if(command==='accounts-provision') {
+      printTarget(record);
+      await provisionAccounts(db,env,args);
     } else if(['staff-create','password-reset','session-revoke'].includes(command)) {
       await useDB(db=>maintainAccount(command,db,env));
     } else if(command==='destroy') {
@@ -128,7 +161,7 @@ export async function production(command,env,args) {
     } else if(command==='smoke-prod') {
       await verifyBindings(call,env,record,true);
       const {smoke}=await import('./smoke.mjs');
-      await smoke(env);
+      await smoke(env,db);
     } else {
       await verifyBindings(call,env,record);
       await dataCommand(command,env,config,undefined,args,useDB);

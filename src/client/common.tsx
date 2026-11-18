@@ -2,11 +2,12 @@ import { useEffect,useRef,useState, type FormEvent, type ReactNode } from 'react
 import { categories, limits, pilot } from '../../config/settings';
 import type { Category, Coordinate } from '../contracts';
 
-export interface User { id:string; name:string; email:string; role:'staff'|'resident' }
+export interface User { id:string; name:string; email:string; role:'staff'|'resident'; purpose?:string|null }
 export async function api<T>(path: string, method = 'GET', data?: unknown): Promise<T> {
   const response = await fetch('/api'+path,{method,headers:data === undefined ? {} : {'Content-Type':'application/json'},
     body:data === undefined ? undefined : JSON.stringify(data)});
   if (!response.ok) {
+    if (response.status===401 && !path.startsWith('/auth/')) window.dispatchEvent(new Event('blockfit-session-expired'));
     const error = await response.json().catch(() => ({})) as {error?:string;message?:string};
     throw new Error(error.error || error.message || 'Something went wrong. Please try again.');
   }

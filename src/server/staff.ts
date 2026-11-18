@@ -7,6 +7,11 @@ import { makeBrief } from './planning';
 import { body, changed, problem, type App } from './web';
 
 export const staff = new Hono<App>();
+const isTest=(c:import('hono').Context<App>)=>c.get('user').purpose==='automated-test';
+staff.use('/inventory/*',async (c,next)=>{
+  if (isTest(c)) problem(403,'Automated-test staff use the isolated comparison workspace.');
+  await next();
+});
 staff.get('/inventory', async c => c.json(await staffInventory(c.env.DB)));
 const kind = z.enum(['parks','equipment','candidates']);
 async function save(db: D1Database, table: string, id: string|null, data: Record<string,string|number|null>) {
@@ -48,28 +53,29 @@ staff.delete('/inventory/:kind/:id', async c => {
   return c.json({ok:true});
 });
 
-async function comparison(db: D1Database, input: Scenario, revision?: number) {
-  const result = await getComparison(db,input);
+async function comparison(db: D1Database, input: Scenario, testWorkspace: boolean, revision?: number) {
+  const result = await getComparison(db,input,testWorkspace);
   if (result === 'limit') problem(409,'The pilot dataset exceeds the comparison limit.');
   if (!result) problem(400,'Select active candidates of this category that are eligible for comparison.');
   if (revision !== undefined && result.revision !== revision) problem(409,'Data has changed. Refresh the comparison.');
   return result;
 }
 staff.post('/compare',async c => {
-  const result = await comparison(c.env.DB,await body(c,scenarioInput));
-  return c.json({ ...result, explanation:await cachedExplanation(c.env,result) });
+  const result = await comparison(c.env.DB,await body(c,scenarioInput),isTest(c));
+  return c.json({ ...result, explanation:isTest(c)?undefined:await cachedExplanation(c.env,result) });
 });
 const reference = z.object({scenario:scenarioInput,revision:z.number().int().nonnegative(),calculatedAt:z.iso.datetime()}).strict();
 staff.post('/export',async c => {
   const {scenario,revision,calculatedAt} = await body(c,reference);
-  const result = await comparison(c.env.DB,scenario,revision);
-  return c.body(makeBrief({...result,calculatedAt},await cachedExplanation(c.env,result)),200,{
+  const result = await comparison(c.env.DB,scenario,isTest(c),revision);
+  return c.body(makeBrief({...result,calculatedAt},isTest(c)?undefined:await cachedExplanation(c.env,result)),200,{
     'Content-Type':'text/markdown; charset=UTF-8','Content-Disposition':'attachment; filename="blockfit-comparison.md"',
   });
 });
 staff.post('/explain',async c => {
+  if(isTest(c)) problem(403,'AI explanations are unavailable in the automated-test workspace.');
   if (!await throttle(c.env.DB,`ai:${c.get('user').id}`,12)) problem(429,'Too many requests. Try again shortly.');
   const {scenario,revision} = await body(c,reference);
-  const result = await comparison(c.env.DB,scenario,revision);
+  const result = await comparison(c.env.DB,scenario,isTest(c),revision);
   return c.json(await explain(c.env,result));
 });

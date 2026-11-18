@@ -9,23 +9,23 @@ export async function rows<T>(db: D1Database, sql: string, ...values: Bind[]) {
 }
 
 const equipmentColumns = `e.id,e.name,e.category,e.lat,e.lng,e.park_id AS parkId,e.condition,e.access,
-  e.source,e.verified_on AS verifiedOn,e.visible`;
-const parkColumns = 'id,name,lat,lng,external_id AS externalId,source,hours,city_maintained AS cityMaintained';
-const candidateColumns = 'id,name,category,lat,lng,park_id AS parkId,feasibility,costs,notes,project_url AS projectUrl';
-type EquipmentRow = Omit<Equipment,'visible'> & { visible: number };
-type CandidateRow = Omit<Candidate,'costs'> & { costs: string };
-const candidate = (row: CandidateRow): Candidate => ({...row,costs:JSON.parse(row.costs)});
+  e.source,e.verified_on AS verifiedOn,e.visible,e.fixture`;
+const parkColumns = 'id,name,lat,lng,external_id AS externalId,source,hours,city_maintained AS cityMaintained,fixture';
+const candidateColumns = 'id,name,category,lat,lng,park_id AS parkId,feasibility,costs,notes,project_url AS projectUrl,fixture';
+type EquipmentRow = Omit<Equipment,'visible'|'fixture'> & { visible: number; fixture:number };
+type CandidateRow = Omit<Candidate,'costs'|'fixture'> & { costs: string; fixture:number };
+const candidate = (row: CandidateRow): Candidate => ({...row,costs:JSON.parse(row.costs),fixture:!!row.fixture});
 const usable = "e.visible=1 AND e.archived=0 AND e.access='public' AND e.condition='usable' AND e.verified_on IS NOT NULL";
 
 export async function inventory(db: D1Database, category: string | null, search: string) {
-  const result = await rows<Omit<PublicEquipment,'park'> & { parkName: string | null; hours: string | null; cityMaintained:number|null }>(db,
+  const result = await rows<Omit<PublicEquipment,'park'|'fixture'> & { parkName: string | null; hours: string | null; cityMaintained:number|null; fixture:number }>(db,
     `SELECT e.id,e.name,e.category,e.lat,e.lng,e.condition,e.access,e.source,e.verified_on AS verifiedOn,
-      p.name AS parkName,p.hours,p.city_maintained AS cityMaintained FROM equipment e LEFT JOIN parks p ON p.id=e.park_id AND p.archived=0
+      e.fixture,p.name AS parkName,p.hours,p.city_maintained AS cityMaintained FROM equipment e LEFT JOIN parks p ON p.id=e.park_id AND p.archived=0
       WHERE e.archived=0 AND e.visible=1 AND (? IS NULL OR e.category=?)
       AND (instr(lower(e.name),lower(?))>0 OR instr(lower(p.name),lower(?))>0)
       ORDER BY e.name,e.id LIMIT ?`, category,category,search,search,limits.inventory);
-  return result.map(({parkName,hours,cityMaintained,...equipment}) => ({
-    ...equipment, park: parkName ? { name: parkName, hours: hours ?? '', cityMaintained:!!cityMaintained } : null,
+  return result.map(({parkName,hours,cityMaintained,fixture,...equipment}) => ({
+    ...equipment, fixture:!!fixture, park: parkName ? { name: parkName, hours: hours ?? '', cityMaintained:!!cityMaintained } : null,
   }));
 }
 
@@ -36,8 +36,8 @@ export async function staffInventory(db: D1Database) {
     stmt(db,`SELECT ${candidateColumns} FROM candidates WHERE archived=0 ORDER BY name LIMIT ?`,limits.inventory),
   ]);
   return {
-    parks: (parks.results as (Omit<Park,'cityMaintained'>&{cityMaintained:number})[]).map(row=>({...row,cityMaintained:!!row.cityMaintained})),
-    equipment: (equipment.results as EquipmentRow[]).map(row => ({...row,visible:!!row.visible})),
+    parks: (parks.results as (Omit<Park,'cityMaintained'|'fixture'>&{cityMaintained:number;fixture:number})[]).map(row=>({...row,cityMaintained:!!row.cityMaintained,fixture:!!row.fixture})),
+    equipment: (equipment.results as EquipmentRow[]).map(row => ({...row,visible:!!row.visible,fixture:!!row.fixture})),
     candidates: (candidates.results as CandidateRow[]).map(candidate),
   };
 }
@@ -52,28 +52,31 @@ export async function requests(db: D1Database, owner: string) {
   }));
 }
 
-export async function getComparison(db: D1Database, scenario: Scenario): Promise<Comparison | 'limit' | null> {
+export async function getComparison(db: D1Database, scenario: Scenario, testWorkspace=false): Promise<Comparison | 'limit' | null> {
   // D1 batches run transactionally, so the revision and all records come from the same snapshot.
   const [revision, demand, existing, sites] = await db.batch([
-    stmt(db,'SELECT value FROM revision WHERE id=1'),
-    stmt(db,`SELECT 'r:'||owner AS id,lat,lng,0 AS synthetic FROM demand WHERE category=? AND status='recorded'
-      UNION ALL SELECT 's:'||id AS id,lat,lng,1 AS synthetic FROM synthetic_demand WHERE category=? LIMIT ?`,
-      scenario.category,scenario.category,limits.demand+1),
-    stmt(db,`SELECT lat,lng,source FROM equipment e WHERE ${usable} AND e.category=? LIMIT ?`,scenario.category,limits.inventory+1),
-    stmt(db,`SELECT ${candidateColumns} FROM candidates WHERE archived=0 AND category=? ORDER BY name,id LIMIT ?`,
-      scenario.category,limits.inventory+1),
+    stmt(db, 'SELECT revision.value + ? * operations.test_revision AS value FROM revision JOIN operations ON operations.id=1 WHERE revision.id=1',Number(testWorkspace)),
+    stmt(db,`SELECT 'r:'||d.owner AS id,d.lat,d.lng,0 AS synthetic FROM demand d JOIN user u ON u.id=d.owner
+      WHERE d.category=? AND d.status='recorded' AND coalesce(u.purpose='automated-test',0)=?
+      UNION ALL SELECT 's:'||id AS id,lat,lng,1 AS synthetic FROM synthetic_demand WHERE category=? AND ?=0 LIMIT ?`,
+      scenario.category,Number(testWorkspace),scenario.category,Number(testWorkspace),limits.demand+1),
+    stmt(db,`SELECT lat,lng,source,e.fixture FROM equipment e WHERE ${usable} AND (?=0 OR e.fixture=1) AND e.category=? LIMIT ?`,
+      Number(testWorkspace),scenario.category,limits.inventory+1),
+    stmt(db,`SELECT ${candidateColumns} FROM candidates WHERE archived=0 AND (?=0 OR fixture=1) AND category=? ORDER BY name,id LIMIT ?`,
+      Number(testWorkspace),scenario.category,limits.inventory+1),
   ]);
   if (demand.results.length > limits.demand || existing.results.length > limits.inventory ||
       sites.results.length > limits.inventory) return 'limit';
   const origins = (demand.results as (Omit<DemandOrigin,'synthetic'> & {synthetic:number})[])
     .map(row => ({...row,synthetic:!!row.synthetic}));
-  const equipment = (existing.results as {lat:number;lng:number;source:string}[]);
+  const equipment = (existing.results as {lat:number;lng:number;source:string;fixture:number}[]);
   const candidates = (sites.results as CandidateRow[]).map(candidate);
   const comparison = compare(scenario,origins,equipment,candidates);
   if (!comparison) return null;
-  return {...comparison, scenario, revision:Number((revision.results[0] as {value:number}).value), calculatedAt:new Date().toISOString(),
-    sites:candidates, origins:origins.map(({lat,lng,synthetic}) => ({lat,lng,synthetic})),
-    existing:equipment.map(({lat,lng}) => ({lat,lng})),
+  const {covered,...result}=comparison;
+  return {...result, testWorkspace, scenario, revision:Number((revision.results[0] as {value:number}).value), calculatedAt:new Date().toISOString(),
+    sites:candidates, origins:origins.map(({id,lat,lng,synthetic}) => ({lat,lng,synthetic,covered:covered.has(id)})),
+    existing:equipment.map(({lat,lng,fixture}) => ({lat,lng,fixture:!!fixture})),
     inventorySources:[...new Set(equipment.map(pin => pin.source))]};
 }
 

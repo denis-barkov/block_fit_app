@@ -28,7 +28,7 @@ export default function CityInventory({data,refresh}: {data:Inventory;refresh:()
     {!data[kind].length && <p>No active {labels[kind].toLowerCase()}.</p>}
     <ul className="divide-y divide-line">
       {data[kind].map(record=><li key={record.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-        <div><strong>{record.name}</strong>{'category' in record && <p className="text-sm muted">{categories[record.category]}</p>}</div>
+        <div><strong>{record.name}</strong>{record.fixture && <span className="ml-2 tag">Illustrative demo record</span>}{'category' in record && <p className="text-sm muted">{categories[record.category]}</p>}</div>
         <div className="flex gap-2"><button className="button" onClick={()=>setEditing(record)}>Edit<span className="sr-only"> {record.name}</span></button>
           <button className="button" onClick={()=>setArchive(record)}>Archive<span className="sr-only"> {record.name}</span></button></div>
       </li>)}

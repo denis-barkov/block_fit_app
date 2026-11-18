@@ -45,3 +45,16 @@
 
 /* MapLibre sets the map container to position: relative outside Tailwind's layers. */
 .map-frame > .maplibregl-map { position:absolute; inset:0; }
+
+.map-marker[data-kind=candidate] { border-radius:.3rem; }
+.map-marker[data-kind=synthetic] { background:transparent; border:0; box-shadow:none; }
+.map-marker[data-kind=synthetic]::before {
+  content:""; width:70%; height:70%; transform:rotate(45deg);
+  background:var(--color-amber); border:1px solid var(--color-paper);
+}
+.map-marker[data-kind=synthetic][data-covered=true]::before {
+  background:var(--color-paper); border-color:var(--color-amber);
+}
+.map-marker[data-kind=private][data-covered=true] {
+  background:var(--color-paper); border-color:var(--color-danger);
+}

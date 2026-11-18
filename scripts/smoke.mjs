@@ -1,39 +1,65 @@
-import {readFileSync,statSync} from 'node:fs';
-import {parseEnv} from 'node:util';
-import {planning} from '../config/settings.ts';
+import {randomUUID} from 'node:crypto';
+import {smokeCredentials} from './accounts.mjs';
+import {categories,pilot,planning} from '../config/settings.ts';
 
-export async function smoke(env) {
-  const filename='.blockfit/prod-smoke.env';
-  if(statSync(filename).mode&0o077)throw new Error('Protect .blockfit/prod-smoke.env with mode 0600.');
-  const credentials=parseEnv(readFileSync(filename,'utf8'));
-  for(const role of ['resident','staff']) {
-    const prefix=role.toUpperCase();
-    const email=credentials[prefix+'_EMAIL'];
-    const password=credentials[prefix+'_PASSWORD'];
-    if(!email||!password)throw new Error('Configure both dedicated smoke accounts in .blockfit/prod-smoke.env.');
+export async function smoke(env,db,{transport=fetch,readCredentials=smokeCredentials}={}) {
+  const marker='smoke-'+randomUUID();
+  let owner;
+  let category;
+  async function run(role,action) {
+    const {email,password}=readCredentials(env,role);
     let cookie='';
-    async function http(path,method='GET',data) {
-      return fetch(env.APP_ORIGIN+'/api'+path,{method,headers:{Origin:env.APP_ORIGIN,
-        ...(cookie?{Cookie:cookie}:{}),...(data?{'Content-Type':'application/json'}:{})},
-      body:data?JSON.stringify(data):undefined,redirect:'error',signal:AbortSignal.timeout(30_000)});
-    }
+    const http=(path,method='GET',data)=>transport(env.APP_ORIGIN+'/api'+path,{method,headers:{
+      Origin:env.APP_ORIGIN,...cookie&&{Cookie:cookie},...data&&{'Content-Type':'application/json'},
+    },body:data?JSON.stringify(data):undefined,redirect:'error',signal:AbortSignal.timeout(30_000)});
     const signIn=await http('/auth/sign-in/email','POST',{email,password});
-    if(!signIn.ok)throw new Error(`Smoke login failed for the dedicated ${role} account (${signIn.status}).`);
+    if(!signIn.ok)throw new Error(`Smoke login failed for dedicated ${role} (${signIn.status}).`);
     cookie=signIn.headers.getSetCookie().map(entry=>entry.split(';',1)[0]).join('; ');
     try {
       const session=await (await http('/me')).json();
-      if(session.user?.role!==role)throw new Error(`Smoke account role mismatch for ${role}.`);
-      if(!(await http('/inventory')).ok)throw new Error('Public inventory check failed.');
-      if(role==='resident') {
-        if((await http('/staff/inventory')).status!==403 || !(await http('/resident')).ok)throw new Error('Resident access check failed.');
-      } else {
-        const result=await http('/staff/compare','POST',{category:'pull-up',radius:planning.radius,horizon:planning.horizon,
-          budget:planning.budget,selected:[]});
-        if(!result.ok)throw new Error(`Staff comparison check failed (${result.status}).`);
+      if(session.user?.role!==role||session.user?.purpose!=='automated-test') {
+        throw new Error(`Smoke requires a dedicated automated-test ${role} account.`);
       }
+      if(!(await http('/inventory')).ok)throw new Error('Public inventory check failed.');
+      await action(http,session.user);
     } finally {
       if(!(await http('/auth/sign-out','POST',{})).ok)throw new Error('Smoke session logout failed.');
     }
   }
-  console.log('Production smoke passed for both dedicated roles.');
+  try {
+    await run('resident',async(http,user)=>{
+      if((await http('/staff/inventory')).status!==403)throw new Error('Resident staff access check failed.');
+      const result=await http('/resident');
+      if(!result.ok)throw new Error('Resident smoke data could not be loaded.');
+      const {location,requests}=await result.json();
+      const active=new Set(requests.filter(row=>row.status==='recorded').map(row=>row.category));
+      category=Object.keys(categories).find(key=>!active.has(key));
+      if(!category)throw new Error('No free equipment category on the dedicated smoke resident account.');
+      owner=user.id;
+      if(!location && !(await http('/resident/location','PUT',{...pilot.center,label:marker,confirmed:true})).ok) {
+        throw new Error('Could not save the smoke location.');
+      }
+      if(!(await http('/resident/requests','POST',{category,note:marker,suggestion:'',point:null})).ok) {
+        throw new Error('Could not record the isolated smoke request.');
+      }
+    });
+    await run('staff',async http=>{
+      const scenario={category,radius:planning.radius,horizon:planning.horizon,budget:planning.budget,selected:[]};
+      const response=await http('/staff/compare','POST',scenario);
+      if(!response.ok)throw new Error(`Staff comparison check failed (${response.status}).`);
+      const result=await response.json();
+      if(!result.testWorkspace||result.demandCount<1||result.origins.some(origin=>origin.synthetic)) {
+        throw new Error('The automated smoke comparison must contain only isolated test demand.');
+      }
+      if((await http('/staff/inventory')).status!==403)throw new Error('Test staff can access shared inventory.');
+    });
+  } finally {
+    if(owner) await db.batch([
+      db.prepare("DELETE FROM demand WHERE owner=? AND note=? AND EXISTS(SELECT 1 FROM user WHERE id=? AND purpose='automated-test')")
+        .bind(owner,marker,owner),
+      db.prepare("DELETE FROM locations WHERE owner=? AND label=? AND EXISTS(SELECT 1 FROM user WHERE id=? AND purpose='automated-test')")
+        .bind(owner,marker,owner),
+    ]);
+  }
+  console.log('Smoke passed for both dedicated roles. Scoped sample data was cleaned up.');
 }

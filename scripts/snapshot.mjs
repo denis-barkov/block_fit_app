@@ -7,18 +7,19 @@ import {candidateInput,coordinate,equipmentInput,parkInput} from '../src/contrac
 import project from '../package.json' with {type:'json'};
 
 const columns={
-  user:'id name email emailVerified image createdAt updatedAt role banned banReason banExpires',
+  user:'id name email emailVerified image createdAt updatedAt role banned banReason banExpires purpose',
   account:'id accountId providerId userId accessToken refreshToken idToken accessTokenExpiresAt refreshTokenExpiresAt scope password createdAt updatedAt',
   locations:'owner lat lng label updated_at',
   demand:'id owner category lat lng status note suggestion suggested_lat suggested_lng created_at confirmed_at',
-  parks:'id name lat lng external_id source hours archived city_maintained',
-  equipment:'id name category lat lng park_id condition access source verified_on visible archived',
-  candidates:'id name category lat lng park_id feasibility costs notes project_url archived',
+  parks:'id name lat lng external_id source hours archived city_maintained fixture',
+  equipment:'id name category lat lng park_id condition access source verified_on visible archived fixture',
+  candidates:'id name category lat lng park_id feasibility costs notes project_url archived fixture',
   synthetic_demand:'id category lat lng',
   ai_day:'day attempts',
 };
 const publicTables=['parks','equipment','candidates','synthetic_demand'];
-const migration='0002_pilot_operations.sql';
+const migration='0003_demo_and_account_purpose.sql';
+const legacyIds={parks:['demo-west','demo-east'],equipment:['demo-bars','demo-parallel','demo-bench'],candidates:['demo-a','demo-b','demo-c']};
 const {version}=project;
 
 const privateTables=Object.keys(columns);
@@ -30,10 +31,11 @@ async function readTables(db,tables) {
 export async function createSnapshot(db,mode) {
   const tables=mode==='demo'?publicTables:privateTables;
   const spend=await db.prepare('SELECT spent FROM ai_total WHERE id=1').first('spent');
-  return {version,migration,mode,exportedAt:new Date().toISOString(),spent:mode==='demo'?0:spend,records:await readTables(db,tables)};
+  const demoVersion=await db.prepare('SELECT demo_version FROM operations WHERE id=1').first('demo_version');
+  return {version,migration,demoVersion,mode,exportedAt:new Date().toISOString(),spent:mode==='demo'?0:spend,records:await readTables(db,tables)};
 }
 function validateRecord(table,row) {
-  const {id,archived,...data}=row;
+  const {id,archived,fixture,...data}=row;
   if (table==='parks') {
     const {external_id,city_maintained,...park}=data;
     parkInput.parse({...park,externalId:external_id,cityMaintained:Boolean(city_maintained)});
@@ -48,7 +50,8 @@ function validateRecord(table,row) {
   }
 }
 export async function restoreSnapshot(db,snapshot) {
-  if (!snapshot || snapshot.version!==version || snapshot.migration!==migration ||
+  const legacy=snapshot?.version==='0.0.1' && snapshot.migration==='0002_pilot_operations.sql';
+  if (!snapshot || (!legacy && (snapshot.version!==version || snapshot.migration!==migration || ![0,1,2].includes(snapshot.demoVersion))) ||
     !['demo','private'].includes(snapshot.mode) || !Number.isSafeInteger(snapshot.spent) || snapshot.spent<0) {
     throw new Error('This snapshot version, schema or mode is incompatible.');
   }
@@ -64,7 +67,9 @@ export async function restoreSnapshot(db,snapshot) {
     const entries=snapshot.records[table];
     if(!Array.isArray(entries))throw new Error('Snapshot records are invalid.');
     const fields=names(table);
-    for(const entry of entries) {
+    for(const record of entries) {
+      const entry=legacy && record && legacyIds[table] ? {...record,fixture:Number(legacyIds[table].includes(record.id))}
+        : legacy && record && table==='user' ? {...record,purpose:null} : record;
       if(!entry || Object.keys(entry).sort().join()!==[...fields].sort().join() ||
         fields.some(field=>!['string','number'].includes(typeof entry[field])&&entry[field]!==null)) {
         throw new Error('Snapshot record fields are invalid.');
@@ -80,7 +85,8 @@ export async function restoreSnapshot(db,snapshot) {
     }
   }
   await db.batch([
-    db.prepare('UPDATE operations SET suspended=1,ai_frozen=1 WHERE id=1'),
+    db.prepare('UPDATE operations SET suspended=1,ai_frozen=1,demo_version=? WHERE id=1').bind(
+      legacy?Number(snapshot.records.synthetic_demand.length>0):snapshot.demoVersion),
     ...statements,
     db.prepare('UPDATE ai_total SET spent=max(spent,?) WHERE id=1').bind(snapshot.spent),
     db.prepare('DELETE FROM session'),
