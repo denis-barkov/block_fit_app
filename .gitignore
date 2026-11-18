@@ -18,3 +18,6 @@ node_modules/
 # Local logs and macOS metadata
 *.log
 .DS_Store
+
+# BlockFit operator state and private exports
+/.blockfit/

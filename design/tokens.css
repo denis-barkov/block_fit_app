@@ -1,0 +1,25 @@
+@theme {
+  --color-ink: #122b3c;
+  --color-muted: #496473;
+  --color-line: #d4e0e2;
+  --color-canvas: #f3f7f6;
+  --color-paper: #fff;
+  --color-brand: #13664f;
+  --color-brand-dark: #0d513f;
+  --color-mint: #dcefe7;
+  --color-amber: #764b11;
+  --color-warning: #fff0d3;
+  --color-danger: #9a342a;
+  --font-sans: "Avenir Next", Avenir, system-ui, sans-serif;
+  --radius-card: 1.125rem;
+  --radius-control: .625rem;
+  --shadow-card: 0 4px 18px rgb(18 43 60 / 5%);
+  --breakpoint-md: 48rem;
+  --breakpoint-xl: 75rem;
+  --spacing: .25rem;
+}
+:root {
+  --page-width: 87.5rem;
+  --map-height: clamp(17rem,40vw,30rem);
+  --motion-fast: 150ms;
+}

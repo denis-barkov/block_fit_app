@@ -1,114 +1,76 @@
 # BlockFit NYC
 
-**More outdoor fitness access from the available public investment budget.**
+BlockFit NYC helps City staff compare outdoor fitness investments using resident requests, existing equipment coverage, and transparent cost assumptions. Residents can find equipment, check what is known about access, and request what is missing near a private location. Staff can maintain the inventory, model candidate sites under a budget, and export a comparison brief.
 
-BlockFit NYC helps City staff compare candidate outdoor fitness investments using resident demand, existing equipment coverage, and transparent cost assumptions. Residents can find equipment and request what is missing nearby. The primary benefit is better-informed investment planning.
+The 0.0.1 local beta uses a Forest Hills, Queens demonstration dataset. The parks, equipment, candidate sites, and costs are illustrative. Request origins in the seed are synthetic. BlockFit NYC is an NYCEDC project concept. A recorded request can inform planning discussion, and City approval and funding follow existing processes.
 
-**Status:** pre-implementation MVP specification. Wireframes and a blueprint exist; the connected application and commands below still need implementation. Initial scope is a two-day build, a small NYC neighborhood pilot, and roughly one week of demonstration use. This is a project concept developed for an NYCEDC initiative, not an official City service or funding commitment.
+## Run locally
 
-## MVP experience
+Use Node.js **24.22.3** (see `.node-version`), npm 11, and Make. The local app requires no Cloudflare credentials or OpenAI key.
 
-| Area | Initial capabilities |
+```sh
+make setup
+make dev ENV=local
+```
+
+Open the loopback URL printed by Wrangler, normally `http://127.0.0.1:8787`. If that port is occupied, choose a free one in `.env.local` by changing `APP_ORIGIN` before restarting. Use the exact configured URL for session cookies and origin checks.
+
+Setup applies the SQL migrations and creates the local dataset and two demonstration accounts. Open **`.blockfit/demo-accounts.json`** in a private local editor to retrieve the generated logins. The file is ignored by Git. Use **My requests** for the resident login or self-registration and **Staff access** for the staff login. Keep synthetic coordinates in any demonstration. The default local database lives in `.blockfit/local-d1/` and survives restart.
+
+| Command | Purpose |
 | --- | --- |
-| Public | Responsive equipment map/list, category filters, site details, source and verification status. Browse without signing in. Link to official maintenance reporting where appropriate. |
-| Resident | Sign in to save one private location and request nearby equipment; optionally suggest a site. Edit, reconfirm, or withdraw requests. One active request per resident/category. |
-| City workspace | Add/edit parks, equipment pins, and candidate sites. Compare coverage and costs under a budget, request an AI explanation, and export a comparison brief. |
+| `make help` | List supported commands. |
+| `make check` | Type-check application and test code. |
+| `make test` | Run domain, API/D1, accounting and operations tests with isolated databases. |
+| `npx playwright install --only-shell chromium` then `make test-browser` | Run isolated Chromium journeys using a loopback Worker and offline map fixtures. |
+| `make build ENV=local` | Build static frontend assets in `dist/`. |
+| `make package ENV=local` | Bundle the Worker and validate Wrangler configuration with a deployment dry run. |
+| `make db-migrate ENV=local` / `make seed ENV=local` | Apply migrations or fill missing demo records. Reseeding does not overwrite edits. |
+| `make reset-local ENV=local RESET=local` | With the dev server stopped, move the old local store aside, then migrate and seed a fresh one. |
+| `make benchmark-auth` | Measure Better Auth’s native scrypt password verification on the local Node host. |
 
-Start with pull-up bars, parallel bars, and sit-up benches. Equipment can belong to a park or stand alone. Keep existing equipment separate from candidate installations. Use provisioned demonstration accounts and synthetic resident locations initially; enforce resident ownership and staff permissions server-side. A recorded request does not imply official acceptance or approval.
+## Product behavior
 
-No photo uploads, repair queue, address-proof collection, walking routes, citywide optimization, or automated City submissions in this MVP. Minimal bundled design images are acceptable. Public pages never expose private resident locations.
+- **Public discovery.** Browse without login, filter by equipment type, search site names, and optionally place a reference pin for approximate straight-line sorting. Equipment has its own source, verification record, condition, and access status. Sites flagged as NYC Parks-maintained link to [NYC311 park maintenance](https://portal.311.nyc.gov/article/?kanumber=KA-01060).
+- **Resident requests.** Register with a display name, unverified email login, and a passphrase of at least 15 characters. Save one private map pin or enter coordinates in the pilot bounds. Review and record equipment requests, then edit, reconfirm, withdraw, or restore them. A database constraint allows one active request per account and equipment type. Changes to the saved origin move active requests together. A suggested installation site is separate from the request origin.
+- **City workspace.** Staff can add, edit, and archive parks, equipment, and candidate sites. Compare individuals and combinations of up to three candidates using the same radius across existing coverage and candidate options. Run the comparison again after relevant edits or resident activity. Briefs carry the comparison revision and exclude private origins, notes and identities.
+- **Planning model.** The default is a 200 m straight-line radius and a 10-year horizon. Baseline coverage requires listed, verified, usable equipment with confirmed public access. The calculation counts overlapping requesters once. It shows upfront budget fit, undiscounted lifecycle cost, cost per newly covered requester, and low/base/high assumptions. Unknown inputs remain unknown. Participation counts do not establish population-wide need, unique people, or installation feasibility.
 
-## Planning model
+Use [NYC Parks Properties](https://data.cityofnewyork.us/Recreation/Parks-Properties/enfh-gkve) for park references and the [Capital Projects Portal](https://capitalprojects.nycplanningdigital.com/about) for public project context. The demo has no imported Parks inventory. Use the optional public project link in candidate records to carry a reference into the brief.
 
-- Apply a configurable straight-line radius, clearly labeled as approximate coverage rather than walking time. Use the same radius consistently within a comparison.
-- Count distinct active requesters who lack existing usable equipment of the selected type and would gain coverage. Count overlapping coverage once when combining sites.
-- Separate upfront purchase, installation, site preparation, and accessibility costs from maintenance and replacement. Compare equivalent service scopes over the same planning period, using undiscounted constant-dollar assumptions initially.
-- Show upfront budget fit, newly covered requesters, and modeled lifecycle cost per newly covered requester. Zero coverage produces “N/A.” Unknown costs remain unknown; include source, low/base/high assumptions, and feasibility status.
-- Request counts are participation evidence, not population-wide need or an equity measure. Comparisons support human review; they do not establish savings, ROI, land availability, or installation approval.
+## Technology and configuration
 
-## Technology choices
+- TypeScript, React, Vite and Tailwind provide a responsive interface. MapLibre GL JS and OpenFreeMap supply the interactive basemap with attribution. Turf provides distance and radius geometry. Lists and coordinate fields remain available when the map fails.
+- Hono and Zod serve same-origin APIs in a Cloudflare Worker with Static Assets. D1 stores users, sessions, inventory, demand, and AI accounting. Better Auth handles credentials and sessions. Resident ownership and staff privileges are enforced in the Worker. Persistent D1 counters limit login, registration, and generation attempts.
+- `config/` owns shared categories, bounds, policy and calculation defaults. `design/` owns visual tokens. Vitest and Playwright cover calculations, APIs, and browser journeys. npm, Wrangler, and maintained Make targets handle application operations.
+- Start with `.env.example`, `.env.local.example`, and `.env.prod.example`. Setup creates missing files only and generates the local auth secret. The tooling loads root `.env`, then `.env.local` or `.env.prod` for the explicitly selected environment. Vite’s dotenv loading is disabled, and no private bindings are serialized into the frontend. Opt-in production CI injection can override only `CLOUDFLARE_API_TOKEN`, `AUTH_SECRET`, and `OPENAI_API_KEY` when `BLOCKFIT_CI_INJECT=true`. Wrangler receives resolved bindings and provider credentials. Production uses its secret storage.
+- Recovery uses **Forgot password? → Contact us** with the configured `CONTACT_EMAIL`. No verification or reset email is sent. Operators independently verify ownership before resetting, since an unverified email claim does not prove identity. Use `make staff-create`, `make password-reset`, or `make session-revoke` with an explicit `ENV`. Passwords are entered at a hidden prompt. Reset revokes existing sessions.
 
-| Technology | Role and reason |
+## Cloudflare operations
+
+The Worker and D1 database use the same `blockfit-nyc-prod[-suffix]` name by default. The protected manifest in `.blockfit/` associates the exact Cloudflare account, Worker name, and D1 UUID. Maintain these through the Make targets and keep a protected copy of the manifest. An optional suffix allows a separate deployment without source edits. The production origin must match the account’s enabled `workers.dev` subdomain. Preview URLs are disabled.
+
+Before deploying, configure the production environment, a real recovery contact, a fresh auth secret, and an account-scoped token with Workers Scripts, D1, account lookup, and Resource Tagging permissions. The scripts validate the selected account and origin, reconcile the database, apply migrations, and upload the Worker and assets with secrets. Provision staff through the operator command. Run production smoke checks with dedicated credentials and verify the Worker’s actual CPU and account headroom before broader testing. [Workers limits](https://developers.cloudflare.com/workers/platform/limits/) · [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/)
+
+| Command | Purpose |
 | --- | --- |
-| TypeScript, React, Vite | One language and a shared component application for all three experiences; fast local iteration. |
-| Tailwind CSS | Responsive styling driven by shared design tokens. |
-| Cloudflare Workers + Static Assets | Frontend and API in one deployment, without server maintenance. |
-| Hono + Zod | Small API layer with explicit input validation. |
-| Cloudflare D1 + SQL migrations | Persistent relational records and sessions, without a separate database service. |
-| Better Auth | Authentication and session handling with D1 support. Benchmark secure authentication against the chosen runtime limits; never weaken password hashing to fit a limit. |
-| MapLibre GL JS + OpenFreeMap | Interactive map and free basemap tiles; retain required attribution. |
-| Selected Turf.js functions | Geographic distances and overlays; deterministic TypeScript handles coverage and economics. |
-| OpenAI API, GPT-5.4 mini | Initial model for concise explanations grounded in supplied comparison results. Model is configurable. |
-| Vitest + Playwright | Calculation/API tests and public, resident, and staff browser journeys. |
-| Wrangler, maintained scripts, npm, Makefile | Local emulation, reproducible infrastructure operations, migrations, and deployment. Terraform is not part of the initial setup. |
+| `make provision ENV=prod` | Reconcile the named D1 database and its tags, then apply migrations. |
+| `make deploy ENV=prod` | Build, migrate, and deploy the named Worker with its D1 binding and secrets. |
+| `make seed ENV=prod` | After target confirmation, insert illustrative inventory and synthetic demand only. |
+| `make smoke-prod ENV=prod` | Check ordinary login, permissions, and comparison with dedicated accounts, then sign out. |
+| `make suspend ENV=prod` / `make resume ENV=prod` | Close or reopen the site and API while retaining D1. |
+| `make snapshot ENV=prod SNAPSHOT=<private path>` | After suspension and draining in-flight writes, export portable data and compatibility metadata. |
+| `make restore ENV=prod SNAPSHOT=<private path>` | Import into a separately named, fresh D1 target. Validate records before resume. |
+| `make destroy ENV=prod` | Confirm the exact account, Worker, D1 UUID, and data retention choice. Independent backups stay outside the target. |
 
-Pin compatible dependency versions and commit the lockfile during implementation. Record the required Node.js version then. No paid map, geocoding, routing, email, or monitoring service is required. Start with site-name search and map-pin location selection; basemap tiles do not provide address search.
+The workflow uses the Cloudflare Resource Tagging API for Worker and D1 metadata. Values come from the resolved configuration. Defaults are `project-name=blockfit-nyc`, `environment=prod`, `managed-by=script`, `service-part=infra`, and `funding=personal`. Tags help inventory resources. Track usage for the named Worker and D1 database alongside billing and shared account limits. Native Worker logging records compact errors with correlation IDs. Routine invocation logs and tracing are disabled. [Resource tagging](https://developers.cloudflare.com/resource-tagging/) · [Logging pricing](https://developers.cloudflare.com/observability/pricing/)
 
-## Data and existing City workflows
+Local auth uses Better Auth's native scrypt parameters. Median native scrypt verification was about 37 ms of Node process CPU on the development machine. Median staff sign-in took about 39 ms wall time through local Workerd and D1. The Cloudflare Free Worker allowance is 10 ms CPU per request, so validate actual Workers CPU for sign-up, login and password change during authorized production testing. Deployment and live Cloudflare verification have not run for 0.0.1. [Workers CPU limits](https://developers.cloudflare.com/workers/platform/limits/#cpu-time)
 
-Use a small attributed public snapshot and manually entered equipment. Store source, verification status, and date; a park listing alone does not confirm a particular piece of equipment. Keep synthetic demand and illustrative costs visibly labeled.
+## Optional AI and portable data
 
-- [NYC Parks Properties](https://data.cityofnewyork.us/Recreation/Parks-Properties/enfh-gkve): park identifiers and geography; validate the selected export before importing. It does not establish installation feasibility.
-- [NYC Parks](https://www.nycgovparks.org): reference information to supplement staff-entered records. Avoid copying Google Maps content into the database.
-- [NYC311 park maintenance](https://portal.311.nyc.gov/article/?kanumber=KA-01060): external reporting route for applicable park issues, not an automatic submission integration.
-- [Capital Projects Portal](https://capitalprojects.nycplanningdigital.com/about): public context staff can consult and link in an exported comparison.
+The City workspace can request a cached OpenAI explanation of numeric aggregates. No individual locations or identities are sent. It uses `gpt-5.4-mini` by default, standard service tier, capped input and generated tokens, and `store:false`. Provider retention rules still apply. AI defaults to disabled in deployment configuration and the database ledger. Comparison and export work independently.
 
-The application supplements existing review processes through exportable evidence and public references. No restricted City API or agency integration is assumed.
+Set a separately authorized total budget, conservative standard-tier input and output pricing, a dedicated API key, and `AI_ENABLED=true` only for approved use. Budget and prices in the examples use microdollars, with prices per million tokens. The server counts input tokens, reserves the maximum call cost and a UTC daily slot atomically in D1, and reconciles known usage. The limit is 150 dispatches per UTC day. A failed request with unknown usage retains its reservation. The server has no automatic generation retries. Use mocked tests for local verification. [OpenAI model](https://developers.openai.com/api/docs/models/gpt-5.4-mini) · [Token counting](https://developers.openai.com/api/docs/guides/token-counting) · [Data controls](https://developers.openai.com/api/docs/guides/your-data)
 
-## Configuration and environments
-
-Shared application settings live in `config/`; reusable visual tokens live in `design/`. Exact values have one source. Environment configuration is resolved once and reused by application tooling and infrastructure scripts.
-
-| File | Purpose | Tracked example |
-| --- | --- | --- |
-| `.env` | Shared deployment values, including project metadata | `.env.example` |
-| `.env.local` | Local development overrides | `.env.local.example` |
-| `.env.prod` | Live Cloudflare deployment settings | `.env.prod.example` |
-
-Load root `.env`, then the explicitly selected environment layer. No deployed test environment is planned; tests run locally against isolated fixtures. Actual environment files are ignored by Git. Examples contain safe defaults and blank secrets/account-specific fields. Provision credentials separately; expose only explicitly public configuration to the browser.
-
-Resource tags derive from resolved environment values:
-
-| Tag | Value |
-| --- | --- |
-| `project-name` | `blockfit-nyc` |
-| `environment` | `prod` for live resources; `local` for local configuration |
-| `managed-by` | `script` |
-| `service-part` | `infra` where supported |
-| `funding` | `personal` |
-
-Use resource names prefixed with `blockfit-nyc-<environment>`. Account/resource identifiers remain configurable so another deployment can coexist. Apply tags where supported; document exceptions. Tags organize ownership but do not isolate quotas or guarantee billing breakdowns. Track usage by the dedicated Worker and D1 database alongside account billing.
-
-## Cost, AI, and retention controls
-
-- Target zero incremental infrastructure cost within available free/included allowances. Cloudflare account quotas are shared with other apps. Check remaining allowances and runtime CPU limits before deployment; never upgrade plans automatically.
-- Keep queries indexed and paginated, cache public inventory, and run comparisons on demand. No polling, scheduled imports, uploaded media storage, or separate monitoring platform.
-- Use OpenAI only, through a dedicated project/key. Allow up to 150 generation attempts per day across the app, subject to a separately configured total demonstration spending ceiling. The ceiling must be explicitly set before AI is enabled; do not assume a budget from daily call counts.
-- Enforce the total ceiling server-side by atomically reserving the maximum bounded call cost before dispatch, then reconciling usage. Include concurrent calls, billed reasoning tokens, and failures with uncertain usage. No automatic retries, paid tools, or model escalation. Keep the approved budget across restarts; recreating an instance does not authorize a fresh spending allowance.
-- Cache explanations by comparison inputs, data revision, prompt version, and model. Send only public/synthetic or suitably aggregated non-identifying data. Use `store:false`; provider retention rules still apply. AI explains supplied results and missing assumptions; it does not invent valuations or perform authoritative calculations.
-- AI is staff-triggered, never automatic per public visit. If disabled or exhausted, ordinary comparisons and exports still work. Automated tests use mocked AI responses.
-- Retain only necessary application records, a bounded explanation cache, and compact usage totals. No full prompt histories. Native logs contain small safe error events; routine invocation logging, tracing, and debug payloads are disabled by default. Confirm actual logging behavior and free allowances during deployment.
-- After the demonstration, suspend access and AI calls while retaining the database, or export and destroy the environment. Snapshots stay outside Git; encrypt private-data backups and keep sanitized demo snapshots separate.
-
-## Development and lifecycle commands
-
-**Planned interface, not yet executable.** Implementation must provide documented Makefile targets and update this section with verified setup instructions. Prerequisites are the pinned Node.js runtime, npm, Make, deployment credentials for Cloudflare, and a separate OpenAI key only when live AI is enabled.
-
-| Target | Intended behavior |
-| --- | --- |
-| `make help` / `make setup` | Explain commands; install dependencies and prepare missing environment files without overwriting values. |
-| `make dev ENV=local` | Run locally with local D1 and no production mutations. |
-| `make check` / `make test` / `make test-browser` / `make build` | Static checks, automated tests, browser journeys, and build. |
-| `make provision ENV=prod` / `make deploy ENV=prod` | Reconcile project resources and tags; build, migrate, and deploy through maintained scripts. |
-| `make snapshot ENV=prod` | Export data/schema with application and schema version metadata. |
-| `make restore ENV=prod SNAPSHOT=<path>` | Import into a fresh target and validate compatibility and records. |
-| `make suspend ENV=prod` / `make resume ENV=prod` | Disable/re-enable app access without deleting retained data. |
-| `make destroy ENV=prod` | Confirm the account and exact project resources, then remove them without affecting other applications. |
-
-Infrastructure changes go through these maintained workflows. Read-only CLI diagnostics remain available. Verify rebuild and snapshot restoration into an isolated instance, including new account bindings and fresh secrets. Demo restores exclude active sessions; backups are not deleted with the environment. Restoring application data and preserving the AI spending ledger require separate, explicit handling.
-
-## Project documents
-
-Working conventions are in `AGENTS.md`. Initial blueprints, wireframes, and Mermaid files belong in `doc/intakes/`; focused current-state documentation belongs in `doc/`. Update this README as capabilities and setup become implemented or change.
-
-Provider references: [Workers limits](https://developers.cloudflare.com/workers/platform/limits/), [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/), [D1 export/import](https://developers.cloudflare.com/d1/best-practices/import-export-data/), [resource tagging](https://developers.cloudflare.com/resource-tagging/), [logging pricing](https://developers.cloudflare.com/observability/pricing/), [OpenAI model](https://developers.openai.com/api/docs/models/gpt-5.4-mini), [OpenAI data controls](https://developers.openai.com/api/docs/guides/your-data), [OpenFreeMap](https://openfreemap.org/). Recheck provider limits before deployment.
+See the [operations guide](doc/operations.md) for snapshot protection, fresh restoration, smoke credentials, and how to bring forward AI spending across deployments. `AGENTS.md` contains working conventions. `doc/intakes/` contains initial blueprints, process diagrams and wireframes. The [0.0.1 request](doc/requests/2026-11-17-0.0.1-local-mvp.md) records the acceptance criteria.
