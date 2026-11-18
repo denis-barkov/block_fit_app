@@ -129,6 +129,30 @@ test('staff can compare and download on desktop and manage inventory on mobile',
   await map.screenshot({path:test.info().outputPath('staff-map.png')});
   await page.getByRole('button',{name:'Request AI explanation'}).click();
   await expect(page.getByRole('alert')).toContainText('AI is unavailable.');
+  await expect(combination).toContainText('Over budget');
+  const mockExplanation=async(route:import('@playwright/test').Route)=>{
+    await route.fulfill({json:{
+      summary:'Central courtyard A leads on modeled lifecycle cost per additional requester.',
+      tradeoffs:'The combination reaches more of the recorded demand. Its higher upfront cost puts it over budget.',
+      checks:'Confirm maintenance assumptions before proceeding. <img src=x onerror=alert(1)>',
+      highlightedOptionIds:['demo-a'],referencedOptionIds:['demo-a','demo-a,demo-b'],
+    }});
+  };
+  await page.route('**/api/staff/explain',mockExplanation);
+  await page.getByRole('button',{name:'Request AI explanation'}).click();
+  const explanation=page.getByRole('article',{name:'AI explanation'});
+  await expect(explanation).toContainText('Central courtyard A leads');
+  await expect(explanation).toContainText('<img src=x onerror=alert(1)>');
+  await expect(explanation.locator('img')).toHaveCount(0);
+  await explanation.screenshot({path:test.info().outputPath('explanation-desktop.png')});
+  await page.setViewportSize({width:390,height:844});
+  await noPageOverflow(page);
+  await explanation.screenshot({path:test.info().outputPath('explanation-mobile.png')});
+  await page.getByLabel('Planning horizon (years)').fill('12');
+  await expect(explanation).toHaveCount(0);
+  await page.getByRole('button',{name:'Apply assumptions'}).click();
+  await expect(page.getByRole('button',{name:'Request AI explanation'})).toBeEnabled();
+  await expect(explanation).toHaveCount(0);
   const download=page.waitForEvent('download');
   await page.getByRole('button',{name:'Download brief'}).click();
   expect((await download).suggestedFilename()).toBe('blockfit-comparison.md');

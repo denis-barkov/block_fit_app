@@ -1,4 +1,4 @@
-import { afterAll,beforeAll,describe,expect,it } from 'vitest';
+import { afterAll,beforeAll,describe,expect,it,vi } from 'vitest';
 import { limits,pilot,planning } from '../config/settings';
 import { createAuth } from '../src/server/auth';
 import app from '../src/server/index';
@@ -125,6 +125,57 @@ describe('connected Worker API and D1',()=>{
     expect((await staff.send('/staff/inventory/equipment/'+equipmentId,'DELETE')).status).toBe(200);
     expect(await (await client().send('/inventory')).json()).toEqual([]);
   });
+  it('only generates for staff on request and preserves the deterministic comparison after invalid output',async()=>{
+    const amount={low:100,base:100,high:100};
+    const record=await staff.send('/staff/inventory/candidates','POST',{...candidate,costs:{...candidate.costs,
+      installation:amount,preparation:amount,accessibility:amount,maintenance:amount}});
+    expect(record.status).toBe(201);
+    const {id:siteId}=await json<{id:string}>(record);
+    const settings={...env};
+    Object.assign(env,{AI_ENABLED:'true',OPENAI_API_KEY:'test-only',AI_BUDGET_MICROUSD:'30000',
+      AI_INPUT_MICROUSD_PER_MILLION:'1000000',AI_OUTPUT_MICROUSD_PER_MILLION:'1000000'});
+    await env.DB.exec('UPDATE operations SET ai_frozen=0 WHERE id=1');
+    const realFetch=globalThis.fetch;
+    const responseBody={summary:'Test candidate leads on modeled lifecycle cost per additional requester.',tradeoffs:'',checks:'',
+      highlightedOptionIds:[siteId],referencedOptionIds:[siteId]};
+    const openai=vi.fn(async (url:string, init?:RequestInit)=>{
+      const payload=JSON.parse(String(init?.body));
+      const input=payload.input[1].content;
+      const snapshot=JSON.parse(input);
+      expect(snapshot.ranking.highlightedOptionIds).toEqual([siteId]);
+      expect(snapshot.options[0]).toMatchObject({id:siteId,name:'Test candidate',highlightEligible:true});
+      expect(input).not.toContain(request.note);
+      if(url.endsWith('/input_tokens')) return Response.json({input_tokens:450});
+      return Response.json({status:'completed',usage:{input_tokens:450,output_tokens:100},
+        output:[{content:[{type:'output_text',text:JSON.stringify(responseBody)}]}]});
+    });
+    vi.stubGlobal('fetch',(input:RequestInfo|URL,init?:RequestInit)=>{
+      const url=input instanceof Request ? input.url : String(input);
+      return url.startsWith('https://api.openai.com/') ? openai(url,init) : realFetch(input,init);
+    });
+    try {
+      const comparison=await json<Comparison>(await staff.send('/staff/compare','POST',scenario));
+      const ref={scenario,revision:comparison.revision,calculatedAt:comparison.calculatedAt};
+      expect((await client().send('/staff/explain','POST',ref)).status).toBe(401);
+      expect((await a.send('/staff/explain','POST',ref)).status).toBe(403);
+      expect((await client().send('/inventory')).ok).toBe(true);
+      expect(openai).not.toHaveBeenCalled();
+      responseBody.referencedOptionIds=['unknown'];
+      expect((await staff.send('/staff/explain','POST',ref)).status).toBe(502);
+      const unchanged=await json<Comparison>(await staff.send('/staff/compare','POST',scenario));
+      expect(unchanged).toEqual({...comparison,calculatedAt:unchanged.calculatedAt});
+      responseBody.referencedOptionIds=[siteId];
+      expect(await (await staff.send('/staff/explain','POST',ref)).json()).toEqual(responseBody);
+      expect(await (await staff.send('/staff/compare','POST',scenario)).json()).toMatchObject({explanation:responseBody});
+      expect(openai).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.unstubAllGlobals();
+      Object.assign(env,{...settings,AI_ENABLED:undefined,OPENAI_API_KEY:undefined});
+      await env.DB.exec('UPDATE operations SET ai_frozen=1 WHERE id=1');
+      await staff.send('/staff/inventory/candidates/'+siteId,'DELETE');
+    }
+  });
+
   it('rejects duplicates, changes passwords securely and persists throttling',async()=>{
     const duplicate=await client().send('/auth/sign-up/email','POST',{email:'a@blockfit.example',name:'Duplicate',password,confirmation:password});
     expect([400,409,422]).toContain(duplicate.status);

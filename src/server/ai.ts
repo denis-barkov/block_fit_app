@@ -1,35 +1,66 @@
+import { z } from 'zod';
 import { ai } from '../../config/settings';
-import { explanationSchema } from '../contracts';
+import { explanationSchema, type Explanation } from '../contracts';
+import { comparisonSnapshot } from './ai-comparison';
+import { loadPrompt } from './prompts';
 import { stmt } from './database';
 import type { Comparison } from './planning';
 import { problem, type Env } from './web';
 
-function aggregate(result: Comparison) {
-  return {
-    scenario: { category:result.scenario.category, radius:result.scenario.radius,
-      horizon:result.scenario.horizon, budgetCents:result.scenario.budget },
-    demand:result.demandCount, unmet:result.unmet,
-    options:result.options.map(option => ({
-      sites:option.ids.map(id => result.sites.findIndex(site => site.id === id)+1).sort((a,b)=>a-b),
-      feasibility:option.feasibility, coverage:option.count, estimates:option.estimates,
-      missing:[...new Set(option.missing.map(entry => entry.key))],
-    })),
+const { $schema, ...outputSchema } = z.toJSONSchema(explanationSchema);
+const schemaVersion = 2;
+const generation = {store:false,service_tier:'default',max_output_tokens:ai.outputTokens} as const;
+
+export function explanationRequest(env: Env, comparison: Comparison) {
+  const content = loadPrompt('explain-investment-options',{output_word_limit:ai.outputWords});
+  const snapshot = comparisonSnapshot(comparison);
+  const payload = {
+    model:env.OPENAI_MODEL || ai.model, reasoning:{effort:'none' as const},
+    input:[{role:'developer',content},{role:'user',content:JSON.stringify(snapshot)}],
+    text:{format:{type:'json_schema',name:'comparison_explanation',strict:true,schema:outputSchema}},
   };
+  return {payload,snapshot,generation};
 }
-function modelFor(env: Env) { return env.OPENAI_MODEL || ai.model; }
-async function cacheKey(env: Env, result: Comparison) {
-  const scenario={...result.scenario,selected:[...result.scenario.selected].sort()};
-  const input = JSON.stringify([ai.promptVersion,modelFor(env),result.revision,scenario,aggregate(result)]);
+
+export async function explanationCacheKey(revision: number, request: ReturnType<typeof explanationRequest>, version = schemaVersion) {
+  const input = JSON.stringify([version,revision,request.payload,request.generation,ai.inputTokens]);
   const digest = await crypto.subtle.digest('SHA-256',new TextEncoder().encode(input));
   return Array.from(new Uint8Array(digest),byte => byte.toString(16).padStart(2,'0')).join('');
 }
-export async function cachedExplanation(env: Env, comparison: Comparison) {
-  const record = await stmt(env.DB,'SELECT result FROM ai_jobs WHERE key=? AND expires>? AND result IS NOT NULL',
-    await cacheKey(env,comparison),Date.now()).first<{result:string}>();
-  return record ? explanationSchema.parse(JSON.parse(record.result)) : undefined;
+
+function validatedExplanation(content: string, snapshot: ReturnType<typeof comparisonSnapshot>): Explanation | undefined {
+  if (content.length > 6_000) return;
+  try {
+    const result = explanationSchema.parse(JSON.parse(content));
+    const sections = [result.summary,result.tradeoffs,result.checks].map(section => section.trim());
+    if (!sections[0] || sections.some(section => section.length > 1200) ||
+        sections.filter(Boolean).join(' ').split(/\s+/).length > ai.outputWords) return;
+    const expected = snapshot.ranking.highlightedOptionIds;
+    const actual = [...result.highlightedOptionIds].sort();
+    if (actual.length !== expected.length || actual.some((id,index) => id !== expected[index])) return;
+    const knownIds = new Set(snapshot.options.map(option => option.id));
+    const referenced = new Set(result.referencedOptionIds);
+    if (referenced.size !== result.referencedOptionIds.length ||
+        result.referencedOptionIds.some(id => !knownIds.has(id)) ||
+        expected.some(id => !referenced.has(id))) return;
+    return {...result,summary:sections[0],tradeoffs:sections[1],checks:sections[2]};
+  } catch { /* Invalid provider output. */ }
 }
 
-const outputFields = ['summary','tradeoffs','missing','limitations'];
+export async function cachedExplanation(env: Env, comparison: Comparison) {
+  let request;
+  try { request = explanationRequest(env,comparison); }
+  catch { return; }
+  if (!withinInputLimit(request)) return;
+  const record = await stmt(env.DB,'SELECT result FROM ai_jobs WHERE key=? AND expires>? AND result IS NOT NULL',
+    await explanationCacheKey(comparison.revision,request),Date.now()).first<{result:string}>();
+  return record ? validatedExplanation(record.result,request.snapshot) : undefined;
+}
+
+function withinInputLimit({payload}: ReturnType<typeof explanationRequest>) {
+  return new TextEncoder().encode(JSON.stringify(payload)).length <= ai.inputBytes;
+}
+
 export async function explain(env: Env, comparison: Comparison, provider: typeof fetch = fetch) {
   const pricing = [env.AI_BUDGET_MICROUSD,env.AI_INPUT_MICROUSD_PER_MILLION,env.AI_OUTPUT_MICROUSD_PER_MILLION]
     .map(value => /^\d+$/.test(value ?? '') ? Number(value) : 0);
@@ -41,28 +72,25 @@ export async function explain(env: Env, comparison: Comparison, provider: typeof
     problem(503,"AI is disabled for this restored environment.");
   }
 
+  let request;
+  try { request = explanationRequest(env,comparison); }
+  catch { problem(503,'This comparison could not be prepared for AI. Comparisons and exports still work.'); }
+  if (!withinInputLimit(request)) problem(400,'This comparison is too large to explain.');
+  const {payload,snapshot} = request;
   const quote = (input: number, output: number) => Math.ceil(input*inputPrice/1e6 + output*outputPrice/1e6);
-  const key = await cacheKey(env,comparison);
+  const key = await explanationCacheKey(comparison.revision,request);
   const db = env.DB;
   const prior = await stmt(db,'SELECT result FROM ai_jobs WHERE key=? AND expires>?',key,Date.now()).first<{result:string|null}>();
   if (prior) {
     if (!prior.result) problem(409,'An explanation is already being prepared. Try again shortly.');
-    return explanationSchema.parse(JSON.parse(prior.result));
+    const explanation = validatedExplanation(prior.result,snapshot);
+    if (explanation) return explanation;
+    await stmt(db,'DELETE FROM ai_jobs WHERE key=? AND result=?',key,prior.result).run();
   }
-  const payload = {
-    model:modelFor(env), reasoning:{effort:'none' as const},
-    input:[{role:'developer', content:'Explain this aggregate investment comparison. Amounts are in cents. Use option numbers only. Do not invent amounts or recommend acceptance. Describe assumptions and limits.'},
-      {role:'user', content:JSON.stringify(aggregate(comparison))}],
-    text:{format:{type:'json_schema',name:'comparison_explanation',strict:true,schema:{
-      type:'object',required:outputFields,additionalProperties:false,
-      properties:Object.fromEntries(outputFields.map(field => [field,{type:'string'}])),
-    }}},
-  };
   const call = (endpoint: string, data: object) => provider(`https://api.openai.com/v1/responses${endpoint}`,{
     method:'POST',headers:{Authorization:`Bearer ${env.OPENAI_API_KEY}`,'Content-Type':'application/json'},
     body:JSON.stringify(data),signal:AbortSignal.timeout(25_000),
   });
-  if (payload.input[1].content.length > 12_000) problem(400,'This comparison is too large to explain.');
   const countResponse = await call('/input_tokens',payload).catch(() => problem(502,'The explanation provider is unavailable.'));
   if (!countResponse.ok) problem(502,'The explanation provider could not count input tokens.');
   const counted = await countResponse.json().catch(() => problem(502,'The provider returned an invalid token count.'));
@@ -89,7 +117,7 @@ export async function explain(env: Env, comparison: Comparison, provider: typeof
     problem(429,'The explanation budget or daily limit has been reached.');
   }
 
-  const response = await call('',{...payload,store:false,service_tier:'default',max_output_tokens:ai.outputTokens})
+  const response = await call('',{...payload,...request.generation})
     .catch(() => problem(502,'The provider did not respond. Usage remains reserved.'));
   if (!response.ok) problem(502,'The provider could not generate an explanation.');
   const value = await response.json().catch(() => problem(502,'The provider returned an invalid explanation.')) as {
@@ -111,10 +139,8 @@ export async function explain(env: Env, comparison: Comparison, provider: typeof
   const items = Array.isArray(value.output) ? value.output : [];
   const content = items.flatMap(item => Array.isArray(item?.content) ? item.content : [])
     .find(item => item?.type === 'output_text')?.text;
-  let explanation;
-  if (value.status === 'completed' && content && content.length <= 6_000) {
-    try { explanation = explanationSchema.parse(JSON.parse(content)); } catch { /* Invalid provider output. */ }
-  }
+  const explanation = value.status === 'completed' && typeof content === 'string'
+    ? validatedExplanation(content,snapshot) : undefined;
   const [revision] = await db.batch<{value:number}>([
     stmt(db,'SELECT value FROM revision WHERE id=1'),
     stmt(db,`UPDATE ai_jobs SET reserved=?,
@@ -122,7 +148,7 @@ export async function explain(env: Env, comparison: Comparison, provider: typeof
       expires=CASE WHEN ? IS NOT NULL AND (SELECT value FROM revision WHERE id=1)=? THEN ? ELSE ? END
       WHERE key=? AND started=?`,
       charge,comparison.revision,explanation?JSON.stringify(explanation):null,explanation?1:null,
-      comparison.revision,now+ai.cacheDays*86_400_000,deadline,key,now),
+      comparison.revision,now+ai.cacheDays*86_400_000,Date.now(),key,now),
     stmt(db,`DELETE FROM ai_jobs WHERE key IN (SELECT key FROM ai_jobs WHERE result IS NOT NULL
       ORDER BY started DESC,key LIMIT 20 OFFSET ?)`,ai.cacheEntries),
     stmt(db,'DELETE FROM ai_day WHERE day IN (SELECT day FROM ai_day WHERE day<? LIMIT 10)',

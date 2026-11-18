@@ -3,7 +3,7 @@ import { categories } from '../../config/settings';
 import { costKeys, upfrontKeys, type Candidate, type Coordinate, type Costs, type Scenario } from '../contracts';
 
 export type DemandOrigin = Coordinate & { id: string; synthetic: boolean };
-const levels = ['low', 'base', 'high'] as const;
+export const levels = ['low', 'base', 'high'] as const;
 type Level = typeof levels[number];
 
 export function metres(a: Coordinate, b: Coordinate) {
@@ -61,8 +61,7 @@ export function compare(scenario: Scenario, demand: DemandOrigin[], existing: Co
   if (selected.some(site => !site || site.feasibility === 'excluded')) return null;
   const options = [...candidates.map(site => calculateOption([site])),
     ...(selected.length > 1 ? [calculateOption(selected as Candidate[])] : [])];
-  const qualified = options.filter(option => option.feasibility === 'suitable-for-comparison' &&
-    option.estimates.base.fits && option.estimates.base.perRequester !== null);
+  const qualified = options.filter(option => !highlightExclusions(option).length);
   // Compare integer products to preserve ties without rounding cost per requester.
   type Option = typeof options[number];
   const relativeCost = (left: Option, right: Option) =>
@@ -81,9 +80,22 @@ export type Comparison = Omit<NonNullable<ReturnType<typeof compare>>,'covered'>
   existing: (Coordinate & {fixture?:boolean})[]; inventorySources: string[];
 };
 
+export function highlightExclusions(option: {
+  feasibility: Candidate['feasibility']; count: number; estimates: {base: {lifecycle: number | null; fits: boolean | null}};
+}) {
+  const base = option.estimates.base;
+  return [
+    ...(option.feasibility === 'suitable-for-comparison' ? [] : [option.feasibility]),
+    ...(option.count === 0 ? ['no additional coverage'] : []),
+    ...(base.lifecycle === null ? ['incomplete lifecycle cost'] : []),
+    ...(base.fits === null ? ['incomplete upfront cost'] : []),
+    ...(base.fits === false ? ['base upfront cost exceeds budget'] : []),
+  ];
+}
+
 export const newlyCovered = 'Newly covered requesters lack eligible existing coverage and fall within the candidate radius. A combination counts each requester once.';
 export const screening = 'Suitable for comparison means the option passed an analytical screening step. Ownership, permission to build, and funding require separate review.';
-export const ranking = 'Highlights consider fully costed, suitable options with positive coverage within the base upfront budget. Equal lowest values share the highlight.';
+export const ranking = 'Among fully costed, suitable options with positive coverage and base upfront budget fit, the lowest base lifecycle cost per newly covered requester is highlighted. Exact ties share the highlight.';
 export const feasibilityLabels = {unreviewed:'Unreviewed','suitable-for-comparison':'Suitable for comparison',excluded:'Excluded'};
 export const interpretation = 'Recorded participation does not measure population need or verify unique people. Unknown inventory may overstate unmet demand. This comparison does not establish realized savings, land availability, or installation approval.';
 const clean = (value: string) => value.replace(/[\r\n\u0000-\u001f\u007f]/g, ' ').replace(/[\\`*_{}\[\]()#+.!|<>~]/g, '\\$&');
@@ -126,7 +138,8 @@ export function makeBrief(result: Comparison, explanation?: import('../contracts
     lines.push('');
   }
   if (explanation) {
-    lines.push('## AI explanation', '', ...Object.values(explanation).map(value => `- ${clean(value)}`));
+    lines.push('## AI explanation', '', ...[explanation.summary,explanation.tradeoffs,explanation.checks]
+      .filter(Boolean).map(value => `- ${clean(value)}`));
   }
   return lines.join('\n') + '\n';
 }

@@ -135,7 +135,7 @@ function ComparisonPage({testWorkspace}: {testWorkspace:boolean}) {
     <section className="panel space-y-4">
       <div className="flex flex-wrap justify-between gap-3"><div><h2>4. Compare investment options</h2>
         {current && <p className="text-sm muted">Revision {current.revision} · {new Date(current.calculatedAt).toLocaleString()}</p>}</div>
-        <div className="flex flex-wrap gap-2">{requestRef && <>{!testWorkspace && <button className="button" disabled={ai.busy} onClick={()=>void ai.run(async()=>{
+        <div className="flex flex-wrap gap-2">{requestRef && <>{!testWorkspace && <button className="button" disabled={ai.busy||action.busy} onClick={()=>void ai.run(async()=>{
           const explanation=await api<Explanation>('/staff/explain','POST',requestRef);
           setResult(value=>value?.calculatedAt===requestRef.calculatedAt?{...value,explanation}:value);
         })}>{ai.busy?'Preparing explanation…':'Request AI explanation'}</button>}
@@ -180,8 +180,12 @@ function ComparisonPage({testWorkspace}: {testWorkspace:boolean}) {
           <p className="mt-2">{screening} {ranking}</p>
           <p className="mt-2">Upfront budget fit is separate from lifecycle costs. Missing amounts remain unknown. Zero new coverage yields N/A for cost per requester. {interpretation}</p>
         </details>
-        {current.explanation && <article className="rounded-control bg-canvas p-4"><h3>AI explanation</h3>
-          {Object.entries(current.explanation).map(([key,value])=><p className="mt-2 break-words text-sm" key={key}><strong>{key[0].toUpperCase()+key.slice(1)}.</strong> {value}</p>)}</article>}
+        {current.explanation && !action.busy && !ai.busy && <article className="rounded-control bg-canvas p-4" aria-labelledby="explanation-heading">
+          <h3 id="explanation-heading">AI explanation</h3>
+          <p className="mt-2 break-words text-sm">{current.explanation.summary}</p>
+          {current.explanation.tradeoffs && <p className="mt-2 break-words text-sm"><strong>Tradeoffs.</strong> {current.explanation.tradeoffs}</p>}
+          {current.explanation.checks && <p className="mt-2 break-words text-sm"><strong>Checks before proceeding.</strong> {current.explanation.checks}</p>}
+        </article>}
       </>:<p role="status" className="muted">Run the comparison to see results for the current inputs and inventory.</p>}
     </section>
   </main>;

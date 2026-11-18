@@ -1,14 +1,15 @@
 import {afterAll,beforeAll,expect,it,vi} from 'vitest';
 import {ai,planning} from '../config/settings';
 import type {Scenario} from '../src/contracts';
-import {cachedExplanation,explain} from '../src/server/ai';
+import {cachedExplanation,explain,explanationCacheKey,explanationRequest} from '../src/server/ai';
 import {getComparison,stmt} from '../src/server/database';
 import type {Env} from '../src/server/web';
 import type {Comparison} from '../src/server/planning';
 import {database} from './database';
 
 const scenario:Scenario={category:'pull-up',radius:planning.radius,horizon:planning.horizon,budget:planning.budget,selected:[]};
-const output={summary:'Illustrative comparison',tradeoffs:'Coverage overlaps',missing:'Unknown inputs',limitations:'Participation only'};
+const output={summary:'No option qualifies for a highlight in this comparison.',tradeoffs:'',checks:'',
+  highlightedOptionIds:[],referencedOptionIds:[]};
 const success={status:'completed',usage:{input_tokens:500,output_tokens:100},
   output:[{content:[{type:'output_text',text:JSON.stringify(output)}]}]};
 let proxy:Awaited<ReturnType<typeof database>>;
@@ -19,7 +20,7 @@ let db:D1Database;
 beforeAll(async()=>{
   proxy=await database();
   db=proxy.env.DB;
-  env={DB:db,AI_ENABLED:'true',OPENAI_API_KEY:'mock-only',AI_BUDGET_MICROUSD:'10000',
+  env={DB:db,AI_ENABLED:'true',OPENAI_API_KEY:'mock-only',AI_BUDGET_MICROUSD:'15000',
     AI_INPUT_MICROUSD_PER_MILLION:'1000000',AI_OUTPUT_MICROUSD_PER_MILLION:'2000000',
     APP_ORIGIN:'http://127.0.0.1:8787',AUTH_SECRET:'synthetic test configuration secret',
     ASSETS:{fetch:()=>Promise.resolve(new Response('test assets')),connect:()=>{throw new Error('Unused');}} as Fetcher};
@@ -45,12 +46,17 @@ function provider({tokens=500,response=success,hold,failure=false}:{tokens?:numb
     expect(body).not.toContain('40.7192');
     expect(body).not.toContain('known-only-to-server');
     expect(body).not.toContain('mock-only');
+    const {input}=JSON.parse(body);
+    expect(input[0]).toMatchObject({role:'developer',content:expect.stringContaining(`${ai.outputWords} words`)});
+    expect(input[1]).toMatchObject({role:'user'});
+    expect(JSON.parse(input[1].content)).toMatchObject({scenario:{area:'Forest Hills, Queens',distance:'straight-line approximation',horizonYears:10},
+      demand:{eligibleUniqueActiveRequesters:1,alreadyServed:0,baselineUnmet:1},costs:{currency:'USD',internalUnit:'cents'}});
     if(String(url).endsWith('/input_tokens')) {
       calls.push('count');
       return Response.json({input_tokens:tokens});
     }
     calls.push('generation');
-    expect(JSON.parse(body)).toMatchObject({max_output_tokens:1000,store:false,service_tier:'default',reasoning:{effort:'none'}});
+    expect(JSON.parse(body)).toMatchObject({max_output_tokens:ai.outputTokens,store:false,service_tier:'default',reasoning:{effort:'none'}});
     await hold?.();
     if(failure)throw new Error('Test timeout');
     return Response.json(response);
@@ -106,4 +112,38 @@ it('enforces the UTC cap, rejects invalid output and refuses an explanation for 
   await expect(explain(env,await revise(),stale.fetch)).rejects.toMatchObject({status:409});
   expect(await spent()).toBe(6100);
   expect(testRevision).toBeGreaterThan(2);
+});
+
+it('keys explanations on rendered instructions, snapshot, model, schema and generation settings',async()=>{
+  const request=explanationRequest(env,result);
+  const key=await explanationCacheKey(result.revision,request);
+  expect(await explanationCacheKey(result.revision,explanationRequest(env,{...result,calculatedAt:new Date().toISOString()}))).toBe(key);
+  const alternatives=[
+    {...request,payload:{...request.payload,input:[{...request.payload.input[0],content:'Changed prompt'},request.payload.input[1]]}},
+    explanationRequest(env,{...result,scenario:{...scenario,radius:scenario.radius+10}}),
+    explanationRequest({...env,OPENAI_MODEL:'another-model'},result),
+    {...request,generation:{...request.generation,max_output_tokens:ai.outputTokens-1}},
+  ];
+  for(const changed of alternatives) expect(await explanationCacheKey(result.revision,changed)).not.toBe(key);
+  expect(await explanationCacheKey(result.revision,request,999)).not.toBe(key);
+  expect(await spent()).toBe(6100);
+});
+
+it('rejects invalid snapshot before a call, validates output IDs and bounds, and allows manual retry',async()=>{
+  const comparison=await revise();
+  const fake=provider();
+  const initial=(await spent())!;
+  await expect(explain(env,{...comparison,unmet:5},fake.fetch)).rejects.toMatchObject({status:503});
+  expect(fake.calls).toEqual([]);
+  expect(await spent()).toBe(initial);
+  const today=new Date().toISOString().slice(0,10);
+  await stmt(db,'UPDATE ai_day SET attempts=0 WHERE day=?',today).run();
+  for(const invalid of [{...output,referencedOptionIds:['unlisted']},{...output,highlightedOptionIds:['unlisted']},
+    {...output,summary:'word '.repeat(ai.outputWords+1)}]) {
+    const bad=provider({response:{...success,output:[{content:[{type:'output_text',text:JSON.stringify(invalid)}]}]}});
+    await expect(explain(env,{...comparison},bad.fetch)).rejects.toMatchObject({status:502});
+    expect(await cachedExplanation(env,comparison)).toBeUndefined();
+  }
+  expect(await explain(env,comparison,fake.fetch)).toEqual(output);
+  expect(await spent()).toBe(initial+4*700);
 });

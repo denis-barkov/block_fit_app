@@ -55,7 +55,7 @@ export type Demand = z.infer<typeof requestInput> & Coordinate & {
 };
 export type SavedLocation = Coordinate & { label: string };
 export const explanationSchema = z.object({
-  summary: z.string().max(1200), tradeoffs: z.string().max(1200),
-  missing: z.string().max(1200), limitations: z.string().max(1200),
+  summary: z.string(), tradeoffs: z.string(), checks: z.string(),
+  highlightedOptionIds: z.array(z.string()), referencedOptionIds: z.array(z.string()),
 }).strict();
 export type Explanation = z.infer<typeof explanationSchema>;

@@ -1,5 +1,6 @@
 import { describe,expect,it } from 'vitest';
 import { calculateCosts,compare,makeBrief,metres,type Comparison,type DemandOrigin } from '../src/server/planning';
+import { comparisonSnapshot } from '../src/server/ai-comparison';
 import type {Candidate,Costs,Scenario} from '../src/contracts';
 
 const amount=(base:number)=>({low:base,base,high:base});
@@ -53,5 +54,51 @@ describe('investment comparisons',()=>{
     expect(output).toContain('Replacement plan: scheduled');
     expect(output).not.toContain('<script>');
     expect(output).not.toContain('12.3456789');
+  });
+});
+
+describe('AI comparison snapshot',()=>{
+  function snapshot(candidates:Candidate[], selected:string[]=[]){
+    const input={...scenario,selected};
+    const existing=[{...coordinate(0),fixture:true}];
+    const result=compare(input,sample,existing,candidates)!;
+    return comparisonSnapshot({...result,scenario:input,revision:8,calculatedAt:'2026-11-18T00:00:00.000Z',
+      sites:candidates,origins:sample,existing,inventorySources:['Demo']});
+  }
+  it('sends computed equal-coverage tradeoffs, union, cost ranges and budget fit without individual details',()=>{
+    const labelA={...a,name:'First courtyard',notes:'confidential fixture',fixture:true};
+    const labelB={...b,name:'Second courtyard',fixture:true};
+    const result=snapshot([labelA,labelB],['A','B']);
+    expect(result).toMatchObject({
+      scenario:{area:'Forest Hills, Queens',horizonYears:10,radiusMetres:200,upfrontBudget:'$20,000',
+        upfrontBudgetMinorUnits:2_000_000,demandData:'synthetic',inventoryData:'synthetic',candidateData:'synthetic'},
+      demand:{eligibleUniqueActiveRequesters:4,alreadyServed:1,baselineUnmet:3},
+      costs:{currency:'USD',internalUnit:'cents',rangeOrder:['low','base','high']},
+      ranking:{highlightedOptionIds:['A'],tied:false},
+    });
+    const option=(id:string)=>result.options.find(option=>option.id===id);
+    expect(option('A')).toMatchObject({name:'First courtyard',newlyCovered:2,upfront:['$12,000','$12,000','$12,000'],
+      lifecycle:['$19,000','$19,000','$19,000'],baseLifecyclePerNewRequester:'$9,500',highlightEligible:true});
+    expect(option('B')).toMatchObject({newlyCovered:2,baseLifecyclePerNewRequester:'$11,500'});
+    expect(option('A,B')).toMatchObject({type:'combination',siteIds:['A','B'],newlyCovered:3,overlap:1,
+      fitsUpfrontBudget:[false,false,false],highlightEligible:false});
+    expect(snapshot([labelA,labelB],['B','A'])).toEqual(result);
+    expect(JSON.stringify(result)).not.toMatch(/confidential fixture|a-only|b-only|"lat"|"lng"/);
+  });
+
+  it('distinguishes zero coverage, missing maintenance, low-only budget fit, redundant coverage and exact ties',()=>{
+    const identical={...a,id:'T',name:'Same rate'};
+    const zero=site('Z',2000,cost(900_000,30_000));
+    const unknown=site('U',450,{...a.costs,maintenance:null});
+    const lowOnly=site('L',450,{...a.costs,equipment:{low:1_000_000,base:2_100_000,high:2_500_000}});
+    const result=snapshot([a,identical,zero,unknown,lowOnly],['A','T']);
+    expect(result.ranking).toMatchObject({highlightedOptionIds:['A','T'],tied:true});
+    const option=(id:string)=>result.options.find(option=>option.id===id);
+    expect(option('A,T')).toMatchObject({newlyCovered:2,overlap:2,upfront:['$24,000','$24,000','$24,000']});
+    expect(option('Z')).toMatchObject({newlyCovered:0,sufficientCostData:true,perRequesterUnavailable:'no additional coverage'});
+    expect(option('U')).toMatchObject({sufficientCostData:false,lifecycle:[null,null,null],missing:['maintenance'],
+      perRequesterUnavailable:'incomplete lifecycle cost'});
+    expect(option('L')).toMatchObject({fitsUpfrontBudget:[true,false,false],highlightExclusions:['base upfront cost exceeds budget']});
+    expect(snapshot([zero,unknown,lowOnly]).ranking).toMatchObject({highlightedOptionIds:[],tied:false});
   });
 });

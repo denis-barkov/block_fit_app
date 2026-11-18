@@ -36,8 +36,8 @@ export async function withDB(env,config,callback,persist=persistPath()) {
     finally {await proxy.dispose();}
   } finally {process.env=original;}
 }
-export function packageWorker(env,config) {
+export function packageWorker(env,config,outdir=resolve(state,'worker')) {
   build(env);
   mkdirSync(state,{recursive:true,mode:0o700});
-  run(bin('wrangler'),['deploy','--dry-run','--no-autoconfig','--config',config,'--outdir',resolve(state,'worker')],env);
+  run(bin('wrangler'),['deploy','--dry-run','--no-autoconfig','--config',config,'--outdir',resolve(outdir)],env);
 }

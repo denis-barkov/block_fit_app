@@ -1,12 +1,13 @@
 import {afterEach,expect,it,vi} from 'vitest';
 import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
-import {readFileSync,mkdtempSync,rmSync} from 'node:fs';
+import {readFileSync,mkdtempSync,readdirSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
 import edge from '../src/pages/_worker.js';
 import {createAuth} from '../src/server/auth';
 import app from '../src/server/index';
 import {packagePages,verifiedPages} from '../scripts/pages.mjs';
 import {writeConfig} from '../scripts/environment.mjs';
+import {packageWorker} from '../scripts/local.mjs';
 import {database} from './database';
 
 const origin='https://blockfit-demo.pages.dev';
@@ -92,6 +93,20 @@ it('derives the canonical URL from the owned Pages project and packages a privat
     const config=JSON.parse(readFileSync(worker,'utf8'));
     expect(config).toMatchObject({workers_dev:false,preview_urls:false,vars:{APP_ORIGIN:target.APP_ORIGIN}});
     expect(config.routes).toBeUndefined();
+    const workerOutput=join(directory,'worker');
+    vi.stubEnv('NODE_ENV','production');
+    try {packageWorker(target,worker,workerOutput);}
+    finally {vi.unstubAllEnvs();}
+    const prompt=readFileSync('prompts/investment-comparison/explain-investment-options.txt','utf8');
+    const packagedPrompt=readdirSync(workerOutput).find(name=>name.endsWith('-explain-investment-options.txt'));
+    expect(packagedPrompt).toBeDefined();
+    expect(readFileSync(join(workerOutput,packagedPrompt),'utf8')).toBe(prompt);
+    expect(readFileSync(join(workerOutput,'index.js'),'utf8')).toContain(packagedPrompt);
+    for(const folder of ['dist',pages.output]) {
+      for(const file of readdirSync(folder,{recursive:true,withFileTypes:true}).filter(entry=>entry.isFile())) {
+        expect(readFileSync(join(file.parentPath,file.name),'utf8')).not.toContain(prompt.split('\n')[0]);
+      }
+    }
     expect(JSON.parse(readFileSync(pages.path,'utf8'))).toMatchObject({
       services:[{binding:'BACKEND',service:env.resourceName}],vars:{APP_ORIGIN:target.APP_ORIGIN},
     });
