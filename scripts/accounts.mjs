@@ -17,19 +17,32 @@ async function prompt(label) {
 async function passwordOnce(label) {
   if(!stdin.isTTY) throw new Error('Account maintenance requires an interactive terminal.');
   stdout.write(label);
-  stdin.setRawMode(true);stdin.resume();
-  try {
+  return new Promise((resolve,reject)=>{
     let value='';
-    for await(const buffer of stdin.iterator({destroyOnReturn:false})) {
+    function close() {
+      stdin.off('data',read);
+      stdin.off('end',end);
+      stdin.off('error',fail);
+      stdin.setRawMode(false);
+      stdin.pause();
+      stdout.write('\n');
+    }
+    function fail(error) {close();reject(error);}
+    function end() {fail(new Error('Password input ended unexpectedly.'));}
+    function read(buffer) {
       for(const char of buffer.toString()) {
-        if(char==='\r'||char==='\n') return value;
-        if(char==='\x03'||char==='\x04') throw new Error('Account maintenance cancelled.');
+        if(char==='\r'||char==='\n') {close();resolve(value);return;}
+        if(char==='\x03'||char==='\x04') {fail(new Error('Account maintenance cancelled.'));return;}
         if(char==='\x7f'||char==='\b') value=Array.from(value).slice(0,-1).join('');
         else if(char>=' ' && value.length<=limits.maxPassword) value+=char;
       }
     }
-    throw new Error('Password input ended unexpectedly.');
-  } finally {stdin.setRawMode(false);stdin.pause();stdout.write('\n');}
+    stdin.setRawMode(true);
+    stdin.on('data',read);
+    stdin.once('end',end);
+    stdin.once('error',fail);
+    stdin.resume();
+  });
 }
 export async function setPassword(db,env,owner,password) {
   const auth=createAuth({DB:db,...env});
