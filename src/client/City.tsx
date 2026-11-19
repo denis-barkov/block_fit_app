@@ -109,6 +109,7 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
   ]:[];
   const focus=choices.find(site=>site.id===focused);
   const focusSelected=!!focus && scenario.selected.includes(focus.id);
+  const missingSelection=scenario.selectedOnly&&!scenario.selected.length;
   return <main className="shell space-y-5 py-8">
     <header><p className="eyebrow">City workspace · {mapArea.name}</p><h1>Where could investment improve access?</h1>
       <p className="mt-2 max-w-3xl muted">Compare candidate sites against recorded equipment demand, existing coverage, an upfront budget, and ongoing costs.</p></header>
@@ -169,11 +170,18 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
               onChange={()=>toggle(site.id)}/>
             {site.name}</label>)}
         </fieldset>
-        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!scenario.selectedOnly}
-          onChange={event=>setScenario({...scenario,selectedOnly:event.target.checked})}/> Compare selected sites only</label>
-        {scenario.selectedOnly&&!scenario.selected.length&&<p className="text-sm muted">Select at least one site or turn off selected-sites comparison.</p>}
-        <button type="submit" form="comparison-assumptions" className="button primary"
-          disabled={action.busy||!available||(scenario.selectedOnly&&!scenario.selected.length)}>Compare sites</button>
+        <div className="mt-4 space-y-2 border-t border-line pt-4">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <label className="flex min-h-11 items-center gap-2 text-sm font-semibold">
+              <input type="checkbox" checked={!!scenario.selectedOnly}
+                aria-describedby={missingSelection?'comparison-selection-hint':undefined}
+                onChange={event=>setScenario({...scenario,selectedOnly:event.target.checked})}/> Selected sites only
+            </label>
+            <button type="submit" form="comparison-assumptions" className="button primary"
+              disabled={action.busy||!available||missingSelection}>Compare sites</button>
+          </div>
+          {missingSelection&&<p id="comparison-selection-hint" className="text-sm muted">Select at least one site or uncheck Selected sites only.</p>}
+        </div>
       </section>
     </div>
     <section className="panel space-y-4" aria-labelledby="comparison-heading">

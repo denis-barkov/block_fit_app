@@ -193,12 +193,24 @@ test('staff can compare and download on desktop and manage inventory on mobile',
   await expect(page.getByText('My requests',{exact:true})).toHaveCount(0);
   const map=page.getByRole('region',{name:'Staff coverage map'});
   const assumptions=page.getByRole('form',{name:/Equipment and assumptions/});
+  const selectedOnly=page.getByRole('checkbox',{name:'Selected sites only',exact:true});
+  const compareSites=page.getByRole('button',{name:'Compare sites',exact:true});
   await expect(map).toBeVisible();
-  for(const width of [768,390]) {
+  for(const width of [1440,768,390]) {
     await page.setViewportSize({width,height:844});
-    const form=await assumptions.boundingBox();
-    expect((await map.boundingBox())!.y).toBeGreaterThan(form!.y+form!.height);
+    if(width<1440) {
+      const form=await assumptions.boundingBox();
+      expect((await map.boundingBox())!.y).toBeGreaterThan(form!.y+form!.height);
+    }
+    const checkbox=await selectedOnly.boundingBox();
+    const button=await compareSites.boundingBox();
+    expect(checkbox!.x+checkbox!.width).toBeLessThan(button!.x);
+    expect(Math.abs(checkbox!.y+checkbox!.height/2-button!.y-button!.height/2)).toBeLessThan(2);
   }
+  await selectedOnly.press('Space');
+  await expect(compareSites).toBeDisabled();
+  await expect(selectedOnly).toHaveAccessibleDescription('Select at least one site or uncheck Selected sites only.');
+  await selectedOnly.press('Space');
   await map.screenshot({path:test.info().outputPath('staff-map-mobile.png')});
   await page.setViewportSize({width:1440,height:1000});
   const account=page.getByRole('button',{name:'Account',exact:true});
@@ -215,9 +227,15 @@ test('staff can compare and download on desktop and manage inventory on mobile',
   await expect(page.getByRole('article',{name:'Candidate details'})).toContainText('Central courtyard A');
   await page.getByRole('button',{name:'Add to combination'}).click();
   await page.getByRole('checkbox',{name:'Central courtyard B'}).check();
-  await page.getByRole('button',{name:'Compare sites'}).click();
+  await selectedOnly.check();
+  await compareSites.click();
   const combination=page.getByRole('row',{name:/Central courtyard A.*Central courtyard B/});
   await expect(combination).toContainText('Over budget');
+  const otherSite=page.getByRole('table').getByRole('button',{name:/West paved court conversion/});
+  await expect(otherSite).toHaveCount(0);
+  await selectedOnly.uncheck();
+  await compareSites.click();
+  await expect(otherSite).toBeVisible();
   await expect(combination).toContainText('in overlapping radii, counted once');
   await page.getByRole('table').getByRole('button',{name:/Central courtyard B/}).press('Enter');
   await expect(map.getByRole('button',{name:/Central courtyard B/})).toHaveAttribute('aria-pressed','true');
