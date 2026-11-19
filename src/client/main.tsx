@@ -6,7 +6,9 @@ import { appIdentity, brandAssets } from '../../config/app';
 import { category,type Category,type EquipmentType } from '../contracts';
 import { isStaffPage,loginLink,pageName,residentLogin,residentRequests,returnPath,staffCatalogPage,staffHome,staffInventoryPage,staffLogin } from '../routes';
 import { api,AuthForm,Feedback,message,Modal,PasswordForm,sessionExpiredEvent,useAction,type User } from './common';
+import NotFound from './NotFound';
 import Public from './Public';
+import SiteFooter from './SiteFooter';
 import { clearTravel } from './travel-return';
 const Resident=lazy(()=>import('./Resident'));
 const City=lazy(()=>import('./City'));
@@ -138,12 +140,7 @@ function App() {
     <div id="main" tabIndex={-1}>
       {(error || action.error) && <div className="shell"><Feedback error={error||action.error}/>
         {error && <button className="button" onClick={()=>{setError('');recheck(n=>n+1);}}>Retry session</button>}</div>}
-      {!name ? <main className="shell py-10"><section className="panel max-w-xl space-y-3">
-        <h1>Page not found</h1>
-        <p className="muted">Check the address or return to the equipment map.</p>
-        <a className="button primary" href="/">Back to home</a>
-      </section></main> :
-        user===undefined ? (!error && <p className="shell py-8" role="status">Checking your session…</p>) :
+      {user===undefined ? (!error && <p className="shell py-8" role="status">Checking your session…</p>) :
         mismatch ? <main className="shell py-10"><section className="panel max-w-xl space-y-3">
           <h1>{staffPage?'Staff access required':'Resident access required'}</h1>
           <p className="muted">{staffPage?'You’re signed in with a resident account. City workspace access requires a staff account.':'Your staff account can browse public equipment and open the City workspace.'}</p>
@@ -168,10 +165,7 @@ function App() {
             <Public types={types} role={user?.role??null} request={user?.role==='staff'?undefined:request}/>}
         </Suspense>}
     </div>
-    {!staffPage && <footer className="mt-4 border-t border-line"><div className="shell flex flex-wrap justify-between gap-3 py-6 text-sm muted">
-      <p>{appIdentity.name} · {appIdentity.tagline}</p>
-      {user===null && <a className="font-bold" href={staffLogin}>City staff sign in</a>}
-    </div></footer>}
+    {!staffPage && <SiteFooter staffSignIn={user===null}/>}
     {accountOpen && user && <Modal title="Account" onClose={()=>{
       setAccountOpen(false);
       requestAnimationFrame(()=>accountButton.current?.focus());
@@ -195,4 +189,4 @@ function initials(name: string) {
   return parts.map(word=>[...word][0]).join('').toLocaleUpperCase() || '?';
 }
 
-createRoot(document.getElementById('root')!).render(<App/>);
+createRoot(document.getElementById('root')!).render(name?<App/>:<NotFound/>);

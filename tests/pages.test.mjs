@@ -15,6 +15,13 @@ import {database} from './database';
 const origin='https://blockfit-demo.pages.dev';
 const untrusted='https://private-worker.person-name.workers.dev';
 const secret='synthetic auth secret for the pages tests only';
+function expectBrowserHeaders(response) {
+  expect(response.headers.get('Content-Security-Policy')).toBe("frame-ancestors 'none'");
+  expect(response.headers.get('X-Frame-Options')).toBe('DENY');
+  expect(response.headers.get('Permissions-Policy')).toBe('camera=(), microphone=(), geolocation=()');
+  expect(response.headers.get('Referrer-Policy')).toBe('strict-origin-when-cross-origin');
+  expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+}
 let runtime;
 let proxy;
 afterEach(async()=>{
@@ -30,6 +37,7 @@ it('uses a real Workerd HTTP service binding and sends only canonical public hea
     {name:'backend',compatibilityDate:'2026-11-18',modules:true,script:`
       export default {fetch(request) {
         const url=new URL(request.url);
+        if(url.pathname==='/missing')return new Response('Page not found',{status:404,headers:{'Cache-Control':'no-store','Content-Type':'text/html'}});
         if(url.pathname.endsWith('/offline')) return new Response('private upstream error',{status:503});
         if(url.pathname==='/binding-error') throw new Error('upstream unavailable');
         if(url.pathname==='/unsafe') return new Response('internal response',{status:302,headers:{Location:${JSON.stringify(untrusted)}}});
@@ -52,10 +60,12 @@ it('uses a real Workerd HTTP service binding and sends only canonical public hea
   expect(await response.json()).toMatchObject({url:origin+'/paths?sample=1',forwarded:null,original:null});
   expect(response.headers.get('Server-Timing')).toBeNull();
   expect(response.headers.get('X-Backend')).toBeNull();
+  expectBrowserHeaders(response);
   expect(response.headers.getSetCookie()).toEqual(['one=sample; Secure; HttpOnly; Path=/','two=sample; Secure; Path=/']);
   const rejected=await runtime.dispatchFetch(origin+'/unsafe');
   expect(rejected.status).toBe(502);
   expect(rejected.headers.get('Location')).toBeNull();
+  expectBrowserHeaders(rejected);
   expect(await rejected.text()).not.toContain(untrusted);
   const navigation={headers:{Accept:'text/html'}};
   for(const [path,status] of [['/offline',503],['/binding-error',502]]) {
@@ -63,6 +73,7 @@ it('uses a real Workerd HTTP service binding and sends only canonical public hea
     expect(fallback.status).toBe(status);
     expect(fallback.headers.get('Content-Type')).toMatch(/^text\/html/);
     expect(fallback.headers.get('Cache-Control')).toBe('no-store');
+    expectBrowserHeaders(fallback);
     expect(await fallback.text()).toContain('<title>BlockFit NYC</title>');
   }
   const api=await runtime.dispatchFetch(origin+'/api/offline',navigation);
@@ -71,7 +82,15 @@ it('uses a real Workerd HTTP service binding and sends only canonical public hea
   const icon=await runtime.dispatchFetch(origin+brandAssets.mark);
   expect(icon.headers.get('Content-Type')).toBe('image/svg+xml');
   expect(await icon.text()).toContain('<svg');
-  expect((await runtime.dispatchFetch('https://preview.blockfit-demo.pages.dev/')).status).toBe(404);
+  expectBrowserHeaders(icon);
+  const missing=await runtime.dispatchFetch(origin+'/missing',navigation);
+  expect(missing.status).toBe(404);
+  expect(missing.headers.get('Content-Type')).toBe('text/html');
+  expect(missing.headers.get('Cache-Control')).toBe('no-store');
+  expectBrowserHeaders(missing);
+  const preview=await runtime.dispatchFetch('https://preview.blockfit-demo.pages.dev/');
+  expect(preview.status).toBe(404);
+  expectBrowserHeaders(preview);
   expect((await runtime.dispatchFetch('https://preview.blockfit-demo.pages.dev'+brandAssets.mark)).status).toBe(404);
 });
 

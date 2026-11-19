@@ -64,7 +64,19 @@ test('public discovery keeps the map ahead of listings on smaller screens and su
   }
   expect((await page.goto('/missing-demo-page'))?.status()).toBe(404);
   await expect(page).toHaveTitle(`Page Not Found | ${appIdentity.name}`);
-  await expect(page.getByRole('heading',{name:'Page not found'})).toBeVisible();
+  const notFound=page.getByRole('region',{name:'Page not found'});
+  await expect(notFound.getByText('404',{exact:true})).toBeVisible();
+  await expect(page.getByRole('banner')).toHaveCount(0);
+  await expect(page.getByText(appIdentity.demoLabel,{exact:true})).toHaveCount(0);
+  for(const width of [320,1440]) {
+    const height=844;
+    await page.setViewportSize({width,height});
+    await noPageOverflow(page);
+    const content=(await notFound.boundingBox())!;
+    const footer=(await page.getByRole('contentinfo').boundingBox())!;
+    expect(Math.abs(content.x+content.width/2-width/2)).toBeLessThan(2);
+    expect(Math.abs(footer.y+footer.height-height)).toBeLessThan(2);
+  }
   await page.getByRole('link',{name:'Back to home'}).click();
   await expect(page.getByRole('heading',{name:'Find outdoor fitness equipment.'})).toBeVisible();
 });

@@ -5,8 +5,21 @@ const forwarded = [
 const publicHeaders = [
   'accept-ranges', 'allow', 'cache-control', 'content-disposition', 'content-encoding',
   'content-language', 'content-range', 'content-type', 'etag', 'last-modified',
-  'referrer-policy', 'vary', 'x-content-type-options',
+  'vary',
 ];
+const browserHeaders = {
+  'Content-Security-Policy':"frame-ancestors 'none'",
+  'X-Frame-Options':'DENY',
+  'Permissions-Policy':'camera=(), microphone=(), geolocation=()',
+  'Referrer-Policy':'strict-origin-when-cross-origin',
+  'X-Content-Type-Options':'nosniff',
+};
+
+function brandedAsset(response) {
+  const headers=new Headers(response.headers);
+  for(const [name,value] of Object.entries(browserHeaders))headers.set(name,value);
+  return new Response(response.body,{status:response.status,headers,encodeBody:'manual'});
+}
 
 function wantsPage(request,url) {
   return (request.method==='GET'||request.method==='HEAD')&&url.pathname!=='/api'&&!url.pathname.startsWith('/api/')&&
@@ -14,12 +27,12 @@ function wantsPage(request,url) {
 }
 
 async function unavailable(request,env,url,status=502) {
-  const headers={'Cache-Control':'no-store'};
+  const headers={...browserHeaders,'Cache-Control':'no-store'};
   if(wantsPage(request,url)&&env.ASSETS) {
     try {
       const fallback=await env.ASSETS.fetch(new Request(new URL('/',url),{method:request.method}));
       if(fallback.ok)return new Response(request.method==='HEAD'?null:fallback.body,{
-        status,headers:{...headers,'Content-Type':'text/html; charset=utf-8','X-Content-Type-Options':'nosniff'},
+        status,headers:{...headers,'Content-Type':'text/html; charset=utf-8'},
       });
     } catch {
       // The plain response is still available if the Pages assets binding fails.
@@ -36,10 +49,10 @@ export default {
     // Pages deployment URLs and preview aliases are deliberately outside the canonical origin.
     const url=new URL(request.url);
     if (url.origin !== env.APP_ORIGIN) {
-      return new Response('Not found.', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+      return new Response('Not found.', { status: 404, headers:{...browserHeaders,'Cache-Control':'no-store'} });
     }
     if((request.method==='GET'||request.method==='HEAD')&&url.pathname.startsWith('/brand/')) {
-      return env.ASSETS.fetch(request);
+      return brandedAsset(await env.ASSETS.fetch(request));
     }
 
     const requestHeaders = new Headers(request.headers);
@@ -54,7 +67,7 @@ export default {
       return unavailable(request,env,url,upstream.status);
     }
 
-    const headers = new Headers();
+    const headers = new Headers(browserHeaders);
     for (const name of publicHeaders) {
       const value = upstream.headers.get(name);
       if (value !== null) headers.set(name, value);

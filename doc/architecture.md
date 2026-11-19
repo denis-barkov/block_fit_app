@@ -14,7 +14,7 @@ flowchart LR
     worker -.-> openai
 ```
 
-Pages accepts the canonical project hostname and forwards every application path to the Worker through its service binding. The original Pages URL remains the request URL. Better Auth uses that same origin and issues host-only, secure session cookies. The Pages code forwards permitted application headers, normalizes same-origin redirects to the Pages hostname, and rejects unexpected redirect origins. The Worker also rejects requests addressed to any other hostname. Canonical aliases, cookies, and headers are covered by local Workerd and Better Auth tests.
+Pages accepts the canonical project hostname and forwards every application path to the Worker through its service binding. The original Pages URL remains the request URL. Better Auth uses that same origin and issues host-only, secure session cookies. The Pages code forwards permitted application headers, normalizes same-origin redirects to the Pages hostname, and rejects unexpected redirect origins. The Worker also rejects requests addressed to any other hostname. Canonical aliases, cookies, and headers are covered by local Workerd and Better Auth tests. Pages applies the browser response policy for framing, camera, microphone, geolocation, referrer information and MIME sniffing. The framing policy applies to documents served through Pages, including error pages.
 
 The backend config disables the `workers.dev` route and Worker version preview URLs. The Pages ingress rejects Pages preview and deployment aliases; the canonical `pages.dev` hostname is the supported public endpoint. Both the public interface and the staff interface use this origin. Cloudflare Pages binds the Worker by its service name internally.
 
