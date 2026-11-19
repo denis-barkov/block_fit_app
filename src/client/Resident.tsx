@@ -4,6 +4,7 @@ import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from 'rea
 import { catalogLimits,limits,pilot,planning } from '../../config/settings';
 import { matchingTypes,typeName,typeNameKey,type Category,type Coordinate,type Demand,type EquipmentType,type ResidentProposal,type SavedLocation } from '../contracts';
 import { api,Categories,Coordinates,Feedback,Field,InfoHint,message,Modal,preferredType,useAction } from './common';
+import { localDate } from '../format';
 
 const MapView=lazy(()=>import('./Map'));
 type Data={location:SavedLocation|null;requests:Demand[];proposals:ResidentProposal[];proposalsNext:number|null;activeRequests:number};
@@ -117,7 +118,7 @@ export default function Resident({initialCategory,types}: {initialCategory:Categ
           <div className="flex flex-wrap items-center gap-2"><h3>{item.categoryName}</h3>
             <span className={`tag ${item.status==='withdrawn'?'unverified':''}`}>{item.status==='recorded'?'Recorded':'Withdrawn'}</span></div>
           {!item.categoryActive && <p className="text-sm muted">Type currently unavailable</p>}
-          <p className="text-sm muted">Last confirmed {new Date(item.confirmedAt).toLocaleDateString()}</p>
+          <p className="text-sm muted">Last confirmed <time dateTime={item.confirmedAt}>{localDate(item.confirmedAt)}</time></p>
           {item.note && <p className="break-words">{item.note}</p>}
           <div className="flex flex-wrap gap-2">{item.status==='recorded'?<>
             {item.categoryActive && <><button className="button" onClick={()=>setDraft(item)}>Edit request</button>

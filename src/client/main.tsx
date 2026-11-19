@@ -4,7 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import './styles.css';
 import { appIdentity, brandAssets } from '../../config/app';
 import { category,type Category,type EquipmentType } from '../contracts';
-import { loginLink,residentLogin,returnPath,staffCatalogPage,staffHome,staffInventoryPage,staffLogin } from '../routes';
+import { isStaffPage,loginLink,pageName,residentLogin,residentRequests,returnPath,staffCatalogPage,staffHome,staffInventoryPage,staffLogin } from '../routes';
 import { api,AuthForm,Feedback,message,Modal,PasswordForm,sessionExpiredEvent,useAction,type User } from './common';
 import Public from './Public';
 import { clearTravel } from './travel-return';
@@ -13,7 +13,9 @@ const City=lazy(()=>import('./City'));
 const CityCatalog=lazy(()=>import('./CityCatalog'));
 
 const path=location.pathname.replace(/\/$/,'')||'/';
-const staffPage=path===staffHome||path.startsWith(staffHome+'/');
+const staffPage=isStaffPage(path);
+const name=pageName(path);
+document.title=`${name??'Page Not Found'} | ${appIdentity.name}`;
 const query=new URLSearchParams(location.search);
 const selected=category.safeParse(query.get('category'));
 const next=query.get('returnTo');
@@ -54,7 +56,7 @@ function App() {
       if(!user && staffPage && path!==staffLogin) {
         location.replace(loginLink('staff',path+location.search));return;
       }
-      if(!user && path==='/requests') {
+      if(!user && path===residentRequests) {
         location.replace(loginLink('resident',path+location.search));return;
       }
       setUser(user);
@@ -66,7 +68,7 @@ function App() {
     const refresh=()=>{setAccountOpen(false);setUser(undefined);setError('');recheck(n=>n+1);};
     const restore=(event:PageTransitionEvent)=>{if(event.persisted)refresh();};
     const hide=(event:PageTransitionEvent)=>{
-      if(event.persisted && (staffPage || path==='/requests')) document.getElementById('main')?.setAttribute('hidden','');
+      if(event.persisted && (staffPage || path===residentRequests)) document.getElementById('main')?.setAttribute('hidden','');
     };
     window.addEventListener('pagehide',hide);
     window.addEventListener('pageshow',restore);
@@ -94,21 +96,21 @@ function App() {
     </button>
     <button className="min-h-11 px-1" disabled={action.busy} onClick={signOut}>Sign out</button>
   </div>;
-  const mismatch=staffPage?user?.role==='resident':path==='/requests'&&user?.role==='staff';
+  const mismatch=staffPage?user?.role==='resident':path===residentRequests&&user?.role==='staff';
   const signIn=(matched:User)=>{
     if(staffPage && matched.role==='resident') {setUser(matched);return;}
     const destination=returnPath(matched.role,next);
     location.replace(matched.role==='staff'&&matched.purpose==='automated-test'&&destination!==staffCatalogPage?staffHome:destination);
   };
-  const request=(value:Category)=>{location.assign(`/requests?category=${encodeURIComponent(value)}`);};
+  const request=(value:Category)=>{location.assign(`${residentRequests}?category=${encodeURIComponent(value)}`);};
 
   return <>
     <a className="sr-only focus:not-sr-only focus:fixed focus:z-40 focus:bg-paper focus:p-3" href="#main">Skip to content</a>
-    <header className={`border-b border-line text-white ${staffPage?'bg-workspace':'bg-ink'}`}>
+    <header className={`site-header border-b border-line text-white ${staffPage?'bg-workspace':'bg-ink'}`}>
       <div className="shell flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-4">
         <a href={staffPage?staffHome:'/'} className="flex items-center gap-2 text-xl font-bold">
           <img src={brandAssets.mark} alt="" width="36" height="36" className="size-9"/>
-          {staffPage?'City workspace':appIdentity.name}
+          <span>{appIdentity.name}{staffPage&&<span className="block text-xs font-semibold text-mint">City workspace</span>}</span>
         </a>
         <nav aria-label={staffPage?'Staff navigation':'Public navigation'} className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm font-semibold">
           {staffPage ? <>
@@ -120,20 +122,28 @@ function App() {
             <a className="py-2" href="/">View public site</a>
           </>:<>
             <a href="/" className="py-2" aria-current={path==='/'?'page':undefined}>Explore equipment</a>
-            {user===null && <a className="py-2" href={residentLogin}>Sign in / Register</a>}
+            {user===null && <a className="py-2" href={residentLogin} aria-current={path===residentLogin?'page':undefined}>Sign in / Register</a>}
             {user?.role==='resident' &&
-              <a className="py-2" href="/requests" aria-current={path==='/requests'?'page':undefined}>My requests</a>}
+              <a className="py-2" href={residentRequests} aria-current={path===residentRequests?'page':undefined}>My requests</a>}
             {user?.role==='staff' && <a className="py-2" href={staffHome}>Return to City workspace</a>}
           </>}
           {account}
         </nav>
       </div>
     </header>
-    <div className="border-b border-line bg-mint"><p className="shell py-2 text-xs">{appIdentity.projectConcept} · Demonstration data · Requests inform planning discussion.</p></div>
+    <div className="border-b border-line bg-mint"><div className="shell flex flex-wrap items-center gap-x-2 gap-y-1 py-2 text-xs">
+      <span className="tag bg-paper">{appIdentity.demoLabel}</span>
+      <p>{appIdentity.projectConcept} · Illustrative data for demonstration</p>
+    </div></div>
     <div id="main" tabIndex={-1}>
       {(error || action.error) && <div className="shell"><Feedback error={error||action.error}/>
         {error && <button className="button" onClick={()=>{setError('');recheck(n=>n+1);}}>Retry session</button>}</div>}
-      {user===undefined ? (!error && <p className="shell py-8" role="status">Checking your session…</p>) :
+      {!name ? <main className="shell py-10"><section className="panel max-w-xl space-y-3">
+        <h1>Page not found</h1>
+        <p className="muted">Check the address or return to the equipment map.</p>
+        <a className="button primary" href="/">Back to home</a>
+      </section></main> :
+        user===undefined ? (!error && <p className="shell py-8" role="status">Checking your session…</p>) :
         mismatch ? <main className="shell py-10"><section className="panel max-w-xl space-y-3">
           <h1>{staffPage?'Staff access required':'Resident access required'}</h1>
           <p className="muted">{staffPage?'You’re signed in with a resident account. City workspace access requires a staff account.':'Your staff account can browse public equipment and open the City workspace.'}</p>
@@ -154,7 +164,7 @@ function App() {
           {staffPage && user?.role==='staff' && path===staffCatalogPage ? <CityCatalog types={types??[]} refreshTypes={refreshTypes}/> :
             !types ? !catalogError && <p className="shell py-8" role="status">Loading equipment types…</p> :
             staffPage && user?.role==='staff' ? <City types={types} inventoryOnly={path===staffInventoryPage} testWorkspace={user.purpose==='automated-test'}/> :
-            path==='/requests' && user?.role==='resident' ? <Resident types={types} initialCategory={selected.success?selected.data:null}/> :
+            path===residentRequests && user?.role==='resident' ? <Resident types={types} initialCategory={selected.success?selected.data:null}/> :
             <Public types={types} role={user?.role??null} request={user?.role==='staff'?undefined:request}/>}
         </Suspense>}
     </div>

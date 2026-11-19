@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { catalogLimits } from '../../config/settings';
 import { matchingTypes, typeName, typeNameKey, type EquipmentType, type StaffEquipmentType, type TypeProposal } from '../contracts';
 import { api, Categories, Feedback, Field, InfoHint, message, Modal, useAction, useTransientNotice } from './common';
+import { localDate } from '../format';
 
 type Page<T>={items:T[];next:number|null};
 type Decision='create'|'match'|'reject';
@@ -183,7 +184,7 @@ function Proposals({types,refreshTypes}: {types:EquipmentType[];refreshTypes:()=
         return <li key={proposal.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
           <div className="min-w-0">
             <h3 className="break-words">{proposal.name} <span className="tag">{statusLabels[proposal.status]}</span></h3>
-            <p className="text-sm muted">Submitted {new Date(proposal.submittedAt).toLocaleDateString()}</p>
+            <p className="text-sm muted">Submitted <time dateTime={proposal.submittedAt}>{localDate(proposal.submittedAt)}</time></p>
             {proposal.description && <p className="break-words">{proposal.description}</p>}
             {proposal.categoryName && <p className="text-sm muted break-words">Approved as {proposal.categoryName}</p>}
             {proposal.reason && <p className="text-sm muted break-words">{proposal.reason}</p>}

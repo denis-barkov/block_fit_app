@@ -18,6 +18,8 @@
   dialog::backdrop { background:rgb(18 43 60 / 55%); }
 }
 @layer components {
+  .site-header :focus-visible { outline-color:var(--color-mint); }
+  .site-header nav a[aria-current=page] { @apply underline decoration-2 underline-offset-4; }
   .shell { max-width:var(--page-width); @apply mx-auto px-4 md:px-8; }
   .panel { @apply rounded-card border border-line bg-paper p-4 shadow-card md:p-6 min-w-0; }
   .button { @apply inline-flex min-h-11 items-center justify-center rounded-control border border-line bg-white px-4 py-2 text-sm font-bold text-ink hover:bg-canvas; transition:background var(--motion-fast); }
@@ -46,6 +48,10 @@
   .map-marker[data-kind=private] { @apply bg-danger; }
   .map-marker[data-kind=reference] { @apply bg-muted; }
   .map-marker[aria-pressed=true] { box-shadow:0 0 0 3px var(--color-brand-dark); }
+  .map-marker[aria-pressed=true]::after {
+    content:"✓";
+    @apply pointer-events-none absolute -right-1 -top-1 grid size-4 place-items-center rounded-full bg-paper text-xs leading-none text-ink;
+  }
   .preview-table { @apply w-full min-w-190 text-sm; }
   .preview-table th, .preview-table td { @apply border-b border-line px-3 py-3 text-left align-top; }
   .preview-table th { @apply bg-canvas font-bold; }

@@ -4,6 +4,7 @@ import { mapArea } from '../../config/map-area';
 import { lazy,Suspense,useEffect,useRef,useState, type FormEvent } from 'react';
 import { limits, planning } from '../../config/settings';
 import type { Category, EquipmentType, Explanation, Scenario } from '../contracts';
+import { dollars, localDateTime } from '../format';
 import { goalRows, goalView, optionId, type GoalFilter, type GoalOrder } from '../goals';
 import { feasibilityLabels,interpretation,newlyCovered,ranking,screening,type Comparison } from '../server/planning';
 import { api,Categories,Feedback,Field,InfoHint,message,preferredType,useAction } from './common';
@@ -11,7 +12,6 @@ import CityInventory,{type Inventory} from './CityInventory';
 import { GoalFitCell,GoalSelector,GoalStatus,useGoalReview,useProgramGoals } from './CityGoals';
 
 const MapView=lazy(()=>import('./Map'));
-const dollars=(amount:number|null)=>amount===null?'N/A':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(amount/100);
 const initial=(types:EquipmentType[]):Scenario=>({category:preferredType(types),radius:planning.radius,horizon:planning.horizon,budget:planning.budget,selected:[]});
 function InventoryPage({types}: {types:EquipmentType[]}) {
   const [inventory,setInventory]=useState<Inventory>();
@@ -215,7 +215,7 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
         <p>{screening} {ranking}</p>
         <p>Upfront budget fit is separate from lifecycle costs. Missing amounts remain unknown. Zero new coverage yields N/A for cost per requester. {interpretation}</p>
       </>}><h2 id="comparison-heading">4. Compare investment options</h2></InfoHint>
-        {current && <p className="text-sm muted">Revision {current.revision} · {new Date(current.calculatedAt).toLocaleString()}</p>}</div>
+        {current && <p className="text-sm muted">Revision {current.revision} · <time dateTime={current.calculatedAt}>{localDateTime(current.calculatedAt)}</time></p>}</div>
         <div className="flex flex-wrap gap-2 md:ml-auto md:justify-end">{reference && <>
           <button className="button primary gap-2" disabled={report.busy} onClick={()=>void report.run(async()=>{
             const text=await api<string>('/staff/export','POST',reference);

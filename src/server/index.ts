@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { appIdentity } from '../../config/app';
 import { limits } from '../../config/settings';
 import { category } from '../contracts';
-import { loginLink,residentLogin,returnPath,staffCatalogPage,staffHome,staffInventoryPage,staffLogin } from '../routes';
+import { isStaffPage,loginLink,pageName,residentLogin,residentRequests,returnPath,staffCatalogPage,staffHome,staffInventoryPage,staffLogin } from '../routes';
 import { createAuth } from './auth';
 import { inventory, stmt, throttle } from './database';
 import { activeEquipmentType, publicTypes, typeUnavailable } from './catalog';
@@ -118,14 +118,21 @@ app.all('/api/*',c => c.json({error:'Route not found.'},404));
 app.get('*',async c => {
   const path=c.req.path.replace(/\/$/,'')||'/';
   if (path==='/city') return c.redirect(staffHome,302);
-  const isStaffPage=path===staffHome||path.startsWith(staffHome+'/');
-  if (!isStaffPage && !['/requests',residentLogin].includes(path)) return c.env.ASSETS.fetch(c.req.raw);
+  const staffPage=isStaffPage(path);
+  if (!staffPage && ![residentRequests,residentLogin].includes(path)) {
+    const asset=await c.env.ASSETS.fetch(c.req.raw);
+    if(pageName(path)||asset.status!==404||!c.req.header('Accept')?.includes('text/html'))return asset;
+    const shell=await c.env.ASSETS.fetch(new Request(new URL('/',c.req.url),c.req.raw));
+    const headers=new Headers(shell.headers);
+    headers.set('Cache-Control','no-store');
+    return new Response(shell.body,{status:404,headers});
+  }
 
   const session=await createAuth(c.env).api.getSession({headers:c.req.raw.headers});
   const here=path+new URL(c.req.url).search;
   const next=c.req.query('returnTo')??null;
   c.header('Cache-Control','no-store');
-  if (isStaffPage) {
+  if (staffPage) {
     if (!session && path!==staffLogin) return c.redirect(loginLink('staff',here),302);
     if (session?.user.role==='staff') {
       if (path===staffLogin) {
@@ -133,10 +140,9 @@ app.get('*',async c => {
         return c.redirect(session.user.purpose==='automated-test'&&destination!==staffCatalogPage?staffHome:destination,302);
       }
       if (path===staffInventoryPage && session.user.purpose==='automated-test') return c.redirect(staffHome,302);
-      if (![staffHome,staffInventoryPage,staffCatalogPage].includes(path)) return c.redirect(staffHome,302);
     }
   } else {
-    if (!session && path==='/requests') return c.redirect(loginLink('resident',here),302);
+    if (!session && path===residentRequests) return c.redirect(loginLink('resident',here),302);
     if (path===residentLogin && session) {
       return c.redirect(session.user.role==='staff'?staffHome:returnPath('resident',next),302);
     }
@@ -144,7 +150,7 @@ app.get('*',async c => {
   const asset=await c.env.ASSETS.fetch(new Request(new URL('/',c.req.url),c.req.raw));
   const headers=new Headers(asset.headers);
   headers.set('Cache-Control','no-store');
-  const mismatch=session && (isStaffPage?session.user.role!=='staff':session.user.role!=='resident');
+  const mismatch=session && (staffPage?session.user.role!=='staff':session.user.role!=='resident');
   return new Response(asset.body,{status:mismatch?403:asset.status,headers});
 });
 

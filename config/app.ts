@@ -4,6 +4,7 @@ export const appIdentity = {
   description: 'Find outdoor fitness equipment and compare options for improving access.',
   tagline: 'Outdoor fitness access and investment planning',
   projectConcept: 'NYCEDC project concept',
+  demoLabel: 'Beta demo',
 };
 
 export const brandAssets = {

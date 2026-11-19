@@ -2,6 +2,7 @@ import { metres } from '../geo';
 export { metres } from '../geo';
 import { appIdentity } from '../../config/app';
 import { planning } from '../../config/settings';
+import { dollars } from '../format';
 import { costKeys, upfrontKeys, type Candidate, type Coordinate, type Costs, type Scenario } from '../contracts';
 
 export type DemandOrigin = Coordinate & { id: string; synthetic: boolean };
@@ -99,14 +100,13 @@ export const ranking = 'Among fully costed, suitable options with positive cover
 export const feasibilityLabels = {unreviewed:'Unreviewed','suitable-for-comparison':'Suitable for comparison',excluded:'Excluded'};
 export const interpretation = 'Recorded participation does not measure population need or verify unique people. Unknown inventory may overstate unmet demand. This comparison does not establish realized savings, land availability, or installation approval.';
 export const clean = (value: string) => value.replace(/[\r\n\u0000-\u001f\u007f]/g, ' ').replace(/[\\`*_{}\[\]()#+.!|<>~]/g, '\\$&');
-const money = (cents: number | null) => cents === null ? 'N/A' : new Intl.NumberFormat('en-US', {style:'currency',currency:'USD'}).format(cents/100);
 export function makeBrief(result: Comparison, explanation?: import('../contracts').Explanation, goalSection:string[] = []) {
   const { scenario } = result;
   const syntheticCount=result.origins.filter(origin=>origin.synthetic).length;
   const lines = [
     `# ${appIdentity.name} investment comparison`, '',
     `Equipment: ${clean(result.categoryName)} | Revision: ${result.revision} | Calculated: ${result.calculatedAt}`,
-    `Radius: ${scenario.radius} m straight-line approximation | Horizon: ${scenario.horizon} years | Upfront budget: ${money(scenario.budget)}`,
+    `Radius: ${scenario.radius} m straight-line approximation | Horizon: ${scenario.horizon} years | Upfront budget: ${dollars(scenario.budget)}`,
     `Recorded demand: ${result.demandCount} | Already covered: ${result.demandCount-result.unmet} | Unmet before installation: ${result.unmet}`, '',
     ...(result.testWorkspace?['Automated-test comparison. Uses isolated test requests.']:[]),
     ...(syntheticCount?[`${syntheticCount} recorded requesters are synthetic demo origins.`]:[]),
@@ -125,11 +125,11 @@ export function makeBrief(result: Comparison, explanation?: import('../contracts
     if (result.highlighted.includes(option.ids.join(','))) lines.push('Lowest modeled cost per newly covered requester.');
     for (const level of levels) {
       const estimate = option.estimates[level];
-      lines.push(`- ${level}: upfront ${money(estimate.upfront)} (${estimate.fits === null ? 'unknown fit' : estimate.fits ? 'inside budget' : 'over budget'}), lifecycle ${money(estimate.lifecycle)}, per requester ${money(estimate.perRequester)}`);
+      lines.push(`- ${level}: upfront ${dollars(estimate.upfront)} (${estimate.fits === null ? 'unknown fit' : estimate.fits ? 'inside budget' : 'over budget'}), lifecycle ${dollars(estimate.lifecycle)}, per requester ${dollars(estimate.perRequester)}`);
     }
     for (const site of sites) {
       lines.push(`- ${clean(site.name)}${site.fixture?' (Illustrative demo candidate)':''} source: ${clean(site.costs.source || 'Unknown')}`,
-        `  - ${costKeys.map(key => `${key} low/base/high ${levels.map(level => money(site.costs[key]?.[level] ?? null)).join(' / ')}`).join('; ')}`,
+        `  - ${costKeys.map(key => `${key} low/base/high ${levels.map(level => dollars(site.costs[key]?.[level] ?? null)).join(' / ')}`).join('; ')}`,
         `  - Replacement plan: ${site.costs.replacementPlan} | Interval: ${site.costs.interval ?? 'N/A'} years`);
       if (site.notes) lines.push(`  - Notes: ${clean(site.notes)}`);
       if (site.estimatedStart||site.estimatedReady) lines.push(

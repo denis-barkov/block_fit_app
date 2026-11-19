@@ -22,12 +22,21 @@ async function noPageOverflow(page:Page) {
 test('public discovery keeps the map ahead of listings on smaller screens and supports fallback',async({page})=>{
   await allowFallback(page);
   await page.goto('/');
-  await expect(page).toHaveTitle(appIdentity.name);
+  await expect(page).toHaveTitle(`Explore Equipment | ${appIdentity.name}`);
   const appLink=page.getByRole('banner').getByRole('link',{name:appIdentity.name});
   await expect(appLink).toBeVisible();
   const mark=appLink.locator(`img[src="${brandAssets.mark}"]`);
   await expect(mark).toBeVisible();
   await expect.poll(()=>mark.evaluate((image:HTMLImageElement)=>image.naturalWidth)).toBeGreaterThan(0);
+  await expect(page.getByText(appIdentity.demoLabel,{exact:true})).toBeVisible();
+  const active=page.getByRole('navigation').getByRole('link',{name:'Explore equipment'});
+  await expect(active).toHaveAttribute('aria-current','page');
+  await expect(active).toHaveCSS('text-decoration-line','underline');
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('link',{name:'Skip to content'})).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(appLink).toBeFocused();
+  await expect(appLink).toHaveCSS('outline-width','3px');
   await expect(page.getByRole('contentinfo')).toContainText(appIdentity.name);
   await expect(page.getByRole('heading',{name:'Find outdoor fitness equipment.'})).toBeVisible();
   await expect(page.getByText('Map unavailable.',{exact:false})).toBeVisible();
@@ -40,7 +49,7 @@ test('public discovery keeps the map ahead of listings on smaller screens and su
   const mapPanel=page.getByRole('region',{name:'Neighborhood map'});
   const listings=page.getByRole('region',{name:'Equipment listings'});
   const search=page.getByRole('button',{name:'Find equipment',exact:true});
-  for (const width of [1440,1024,768,390]) {
+  for (const width of [1440,1024,768,390,320]) {
     await page.setViewportSize({width,height:900});
     await noPageOverflow(page);
     const map=await mapPanel.boundingBox();
@@ -53,6 +62,11 @@ test('public discovery keeps the map ahead of listings on smaller screens and su
       expect(map!.y).toBe(list!.y);
     }
   }
+  expect((await page.goto('/missing-demo-page'))?.status()).toBe(404);
+  await expect(page).toHaveTitle(`Page Not Found | ${appIdentity.name}`);
+  await expect(page.getByRole('heading',{name:'Page not found'})).toBeVisible();
+  await page.getByRole('link',{name:'Back to home'}).click();
+  await expect(page.getByRole('heading',{name:'Find outdoor fitness equipment.'})).toBeVisible();
 });
 test('map pin and list share selection with an offline vector style',async({page})=>{
   await page.route(mapArea.styleUrl,route=>route.fulfill({json:{
@@ -69,6 +83,7 @@ test('map pin and list share selection with an offline vector style',async({page
   await bench.click();
   await expect(page.getByRole('article',{name:'Selected equipment'})).toContainText('Standalone sit-up bench');
   await expect(bench).toHaveAttribute('aria-pressed','true');
+  await expect.poll(()=>bench.evaluate(node=>getComputedStyle(node,'::after').content)).toBe('"✓"');
   await page.getByRole('button',{name:/West court pull-up bars.*Simulated verification/}).click();
   await expect(map.getByRole('button',{name:'West court pull-up bars'})).toHaveAttribute('aria-pressed','true');
   await expect(map.getByText('Brooklyn and Queens pin area')).toBeVisible();
@@ -192,12 +207,16 @@ test('staff can compare and download on desktop and manage inventory on mobile',
   const {staff}=credentials();
   await page.goto('/city');
   await expect(page).toHaveURL(/\/staff\/login/);
+  await expect(page).toHaveTitle(`City Staff Sign In | ${appIdentity.name}`);
   await expect(page.getByRole('heading',{name:'City staff sign in'})).toBeVisible();
   await expect(page.getByRole('button',{name:'Create resident account'})).toHaveCount(0);
   await page.getByLabel('Email').fill(staff.email);
   await page.getByLabel('Password',{exact:true}).fill(staff.password);
   await page.getByRole('button',{name:'Sign in',exact:true}).press('Enter');
   await expect(page.getByRole('heading',{name:'Where could investment improve access?'})).toBeVisible();
+  await expect(page).toHaveTitle(`City Workspace | ${appIdentity.name}`);
+  await expect(page.getByRole('banner').getByRole('link',{name:/BlockFit NYC.*City workspace/})).toHaveAttribute('href','/staff');
+  await expect(page.getByRole('link',{name:'Investment comparisons'})).toHaveCSS('text-decoration-line','underline');
   await expect(page.getByRole('navigation',{name:'Staff navigation'})).toContainText('Manage inventory');
   await expect(page.getByText('My requests',{exact:true})).toHaveCount(0);
   const map=page.getByRole('region',{name:'Staff coverage map'});
@@ -216,6 +235,10 @@ test('staff can compare and download on desktop and manage inventory on mobile',
     expect(checkbox!.x+checkbox!.width).toBeLessThan(button!.x);
     expect(Math.abs(checkbox!.y+checkbox!.height/2-button!.y-button!.height/2)).toBeLessThan(2);
   }
+  await page.setViewportSize({width:320,height:844});
+  await noPageOverflow(page);
+  await expect(compareSites).toBeVisible();
+  await page.setViewportSize({width:390,height:844});
   await selectedOnly.press('Space');
   await expect(compareSites).toBeDisabled();
   await expect(selectedOnly).toHaveAccessibleDescription('Select at least one site or uncheck Selected sites only.');
@@ -371,10 +394,23 @@ test('ordinary login sends staff to the workspace and back navigation respects l
   await page.goto('/login?returnTo=https%3A%2F%2Fexample.invalid%2F');
   await page.getByLabel('Email').fill(staff.email);
   await page.getByLabel('Password',{exact:true}).fill(staff.password);
-  await page.getByRole('button',{name:'Sign in',exact:true}).click();
+  const signIn=page.getByRole('button',{name:'Sign in',exact:true});
+  const finish=Promise.withResolvers<void>();
+  await page.route('**/api/auth/sign-in/email',async route=>{
+    await finish.promise;
+    await route.fulfill({status:503,json:{error:'Sign-in is temporarily unavailable. Try again.'}});
+  },{times:1});
+  await signIn.click();
+  try {await expect(signIn).toBeDisabled();}
+  finally {finish.resolve();}
+  await expect(page.getByRole('alert')).toContainText('Sign-in is temporarily unavailable');
+  await expect(page.getByLabel('Email')).toHaveValue(staff.email);
+  await expect(page.getByLabel('Password',{exact:true})).not.toHaveValue('');
+  await signIn.click();
   await expect(page).toHaveURL(/\/staff$/);
   await page.getByRole('link',{name:'Manage inventory'}).click();
   await expect(page).toHaveURL(/\/staff\/inventory$/);
+  await expect(page).toHaveTitle(`Manage Inventory | ${appIdentity.name}`);
   await page.getByRole('button',{name:'Sign out'}).click();
   await expect(page.getByRole('heading',{name:'City staff sign in'})).toBeVisible();
   await page.goBack();
@@ -394,6 +430,7 @@ test('resident sign-in at the staff entry shows a role mismatch and survives mob
   await expect(page.getByRole('link',{name:'Manage inventory'})).toHaveCount(0);
   await page.getByRole('link',{name:'Resident sign-in'}).press('Enter');
   await expect(page.getByRole('heading',{name:'My requests'})).toBeVisible();
+  await expect(page).toHaveTitle(`My Requests | ${appIdentity.name}`);
   await expect(page.getByRole('navigation',{name:'Public navigation'})).toContainText('My requests');
   await expect(page.getByRole('link',{name:'City staff sign in'})).toHaveCount(0);
   await noPageOverflow(page);
