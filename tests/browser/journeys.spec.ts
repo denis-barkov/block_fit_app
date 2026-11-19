@@ -582,6 +582,8 @@ test('staff saves a goal, evaluates and filters options, and clears the goal wit
 
     let evaluations=0,explanations=0;
     let explanationFilter='';
+    let explanationOrder='';
+    let holdExplanation:Promise<void>|undefined;
     let cachedPreview:{goal:{id:string;version:number}}|undefined;
     await page.route('**/api/staff/goals/preview',async route=>{
       const goal=route.request().postDataJSON().goal;
@@ -608,6 +610,8 @@ test('staff saves a goal, evaluates and filters options, and clears the goal wit
     await page.route('**/api/staff/explain',async route=>{
       explanations++;
       explanationFilter=route.request().postDataJSON().goal?.filter;
+      explanationOrder=route.request().postDataJSON().goal?.order;
+      await holdExplanation;
       await route.fulfill({json:{summary:'The goal filters the current comparison.',tradeoffs:'Review the modeled costs.',
         checks:'Confirm the estimates.',highlightedOptionIds:[],referencedOptionIds:[]}});
     });
@@ -654,11 +658,33 @@ test('staff saves a goal, evaluates and filters options, and clears the goal wit
     await page.getByRole('button',{name:'Request AI explanation'}).click();
     await expect(page.getByRole('heading',{name:'AI explanation'})).toBeVisible();
     expect(explanationFilter).toBe('strong');
+    expect(explanationOrder).toBe('fit');
     expect(evaluations).toBe(1);
     expect(explanations).toBe(1);
+    await page.getByLabel('Option ordering').selectOption('baseline');
+    await expect(page.getByRole('heading',{name:'AI explanation'})).toHaveCount(0);
+    await page.getByLabel('Option ordering').selectOption('fit');
+    await expect(page.getByRole('heading',{name:'AI explanation'})).toHaveCount(0);
     await page.getByLabel('Filter by goal fit').selectOption('information');
     await expect(page.getByRole('heading',{name:'AI explanation'})).toHaveCount(0);
     await expect(table).toBeVisible();
+    const pause=Promise.withResolvers<void>();
+    holdExplanation=pause.promise;
+    const inFlight=page.waitForRequest('**/api/staff/explain');
+    await page.getByRole('button',{name:'Request AI explanation'}).click();
+    await inFlight;
+    const response=page.waitForResponse('**/api/staff/explain');
+    await page.getByLabel('Option ordering').selectOption('baseline');
+    await page.getByLabel('Option ordering').selectOption('fit');
+    pause.resolve();
+    holdExplanation=undefined;
+    await response;
+    await expect(page.getByRole('heading',{name:'AI explanation'})).toHaveCount(0);
+    await page.getByLabel('Option ordering').selectOption('baseline');
+    await page.getByRole('button',{name:'Request AI explanation'}).click();
+    await expect(page.getByRole('heading',{name:'AI explanation'})).toBeVisible();
+    expect(explanationFilter).toBe('information');
+    expect(explanationOrder).toBe('baseline');
     await page.setViewportSize({width:390,height:844});
     await noPageOverflow(page);
     await page.getByRole('region',{name:'Goal review'}).screenshot({path:test.info().outputPath('goal-status-390.png'),animations:'disabled'});
@@ -668,6 +694,7 @@ test('staff saves a goal, evaluates and filters options, and clears the goal wit
     await editor.getByLabel('Description').fill('Prioritize confirmed inspection and delivery slots.');
     await editor.getByRole('button',{name:'Save goal'}).click();
     await expect(editor).toHaveCount(0);
+    await expect(page.getByRole('heading',{name:'AI explanation'})).toHaveCount(0);
     await expect(page.getByLabel('Filter by goal fit')).toHaveCount(0);
     await expect(page.getByLabel('Option ordering')).toHaveCount(0);
     await page.getByRole('button',{name:'Evaluate goal'}).click();

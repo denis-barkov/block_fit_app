@@ -1,11 +1,13 @@
 import evaluateProgramGoal from '../../prompts/investment-goals/evaluate-program-goal.txt';
 import explainInvestmentOptions from '../../prompts/investment-comparison/explain-investment-options.txt';
+import explainGoalInvestmentOptions from '../../prompts/investment-comparison/explain-goal-investment-options.txt';
 import chooseDestinations from '../../prompts/resident-travel/choose-destinations.txt';
 import exploreDestination from '../../prompts/resident-travel/explore-destination.txt';
 
 const templates = {
   'evaluate-program-goal':evaluateProgramGoal,
   'explain-investment-options':explainInvestmentOptions,
+  'explain-goal-investment-options':explainGoalInvestmentOptions,
   'choose-destinations':chooseDestinations,
   'explore-destination':exploreDestination,
 };

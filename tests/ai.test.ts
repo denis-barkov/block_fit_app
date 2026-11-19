@@ -47,6 +47,7 @@ function provider({tokens=500,response=success,hold,failure=false}:{tokens?:numb
     expect(body).not.toContain('mock-only');
     const {input}=JSON.parse(body);
     expect(input[0]).toMatchObject({role:'developer',content:expect.stringContaining(`${ai.outputWords} words`)});
+    expect(input[0].content).toContain('Lead with the calculated highlight');
     expect(input[1]).toMatchObject({role:'user'});
     expect(JSON.parse(input[1].content)).toMatchObject({scenario:{area:'Brooklyn and Queens',distance:'straight-line approximation',horizonYears:10},
       demand:{eligibleUniqueActiveRequesters:1,alreadyServed:0,baselineUnmet:1},costs:{currency:'USD',internalUnit:'cents'}});

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { goalLimits, structuredGoalDescription } from '../../config/goals';
 import { ai, staffComparisonAI } from '../../config/settings';
 import { costKeys } from '../contracts';
-import { bucketLabels, evidenceLabels, fitLabels, fits, goalEvidenceKeys, goalFilterLabels, goalReasonLabels, goalRows, goalView, optionId, statusLabels, type Goal,
+import { bucketLabels, evidenceLabels, fitLabels, fits, goalEvidenceKeys, goalFilterLabels, goalReasonLabels, goalRows, goalView, leadingGoalBasis, optionId, statusLabels, type Goal,
   type GoalEvaluation, type GoalFilter, type GoalOrder, type GoalRef } from '../goals';
 import { generate, inputSizeError, hash, modelParameters, verifyAIContext, type GenerationContext } from './ai-gateway';
 import { stmt } from './database';
@@ -181,13 +181,18 @@ export function goalExplanationContext(result:Comparison,review:GoalReview,filte
   const {goal,evaluation}=review;
   const rows=goalRows(result,goal,evaluation);
   const view=goalView(rows,filter,order);
+  const [first,second]=view.visible;
   const positions=new Map(view.visible.map((row,index)=>[row.id,index+1]));
+  const ordinary=rows.filter(row=>positions.has(row.id));
   const detailed=new Set(view.visible.slice(0,staffComparisonAI.explanation.detailOptions).map(row=>row.id));
   return {
     goal:{id:goal.id,version:goal.version,name:goal.name,description:goal.description,earliestStart:goal.earliestStart,targetCompletion:goal.targetCompletion,
       allowedTypes:goal.types.map(type=>type.name+(type.active?'':' (unavailable)'))},
     clarification:evaluation?.clarification??null, qualitativeFit:evaluation?'assessed':review.blocked??'not evaluated',
     filter:goalFilterLabels[filter],order:order==='fit'?'Goal fit':'Ordinary comparison',counts:view.counts,shown:view.shown,hidden:view.hidden,
+    evaluationKey:review.evaluationKey,
+    orderChanged:ordinary.some((row,index)=>view.visible[index]?.id!==row.id),
+    firstVisible:first?{id:first.id,basis:leadingGoalBasis(order,first,second),fit:fitLabels[first.fit]}:null,
     options:rows.map((row,index)=>({id:row.id,requirements:row.requirement,eligibility:row.eligibility,
       baselinePosition:index+1,visiblePosition:positions.get(row.id)??null,fit:row.fit,
       checks:[...new Set([...row.requirements,...row.eligibilityIssues].map(issue=>issue.code))],

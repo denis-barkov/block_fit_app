@@ -1,12 +1,15 @@
 import {expect,it} from 'vitest';
 import {ai} from '../config/settings';
 import instructions from '../prompts/investment-comparison/explain-investment-options.txt';
+import goalInstructions from '../prompts/investment-comparison/explain-goal-investment-options.txt';
 import {loadPrompt,renderPrompt} from '../src/server/prompts';
 
 it('loads the version-controlled prompt and resolves the configured word target',()=>{
   expect(instructions).toContain('{{output_word_limit}}');
   expect(loadPrompt('explain-investment-options',{output_word_limit:ai.outputWords}))
     .toBe(instructions.replace('{{output_word_limit}}',String(ai.outputWords)));
+  expect(loadPrompt('explain-goal-investment-options',{output_word_limit:ai.outputWords}))
+    .toBe(goalInstructions.replace('{{output_word_limit}}',String(ai.outputWords)));
   expect(()=>loadPrompt('../other',{output_word_limit:ai.outputWords})).toThrow();
   expect(()=>loadPrompt('explain-investment-options',{output_word_limit:-1})).toThrow();
 });

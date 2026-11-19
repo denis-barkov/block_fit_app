@@ -164,8 +164,13 @@ it('bounds spend, reuses one authoritative assessment, and gives Explain and exp
       expect(strong.missing).toMatchObject({maxItems:goalLimits.missing,items:{maxLength:goalLimits.missingChars}});
     }
     if(url.endsWith('input_tokens'))return Response.json({input_tokens:900});
-    if(!assessment)lastExplanation=snapshot;
-    else assessmentGoals.push(snapshot.goal);
+    if(!assessment) {
+      lastExplanation=snapshot;
+      expect(payload.input[0].content).toContain('The current filter and order are authoritative.');
+      const first=snapshot.goalReview.firstVisible;
+      expect(payload.text.format.schema.properties.firstVisibleOptionId)
+        .toMatchObject(first?{enum:[first.id]}:{type:'null'});
+    } else assessmentGoals.push(snapshot.goal);
     const delivering=snapshot.goal?.id===deliveryGoal.id;
     const preferred=delivering?unknown.id:first.id;
     const value=assessment?{clarification:null,assessments:snapshot.options.map(({id}: {id:string})=>({
@@ -173,8 +178,9 @@ it('bounds spend, reuses one authoritative assessment, and gives Explain and exp
         (id===preferred?(snapshot.goal.version===2?'The revised goal prioritizes utility review.':'The staging slot is confirmed.'):'Staging confirmation is missing.'):
         (id===preferred?'The supplied site notes describe a surface-mounted installation.':'Delivery evidence is missing.'),
       evidence:['s1'],missing:id===preferred?[]:['Delivery readiness'],conflict:null,
-    }))}:{summary:'Low disruption favors the documented surface-mounted court. Options with unknown schedules stay outside the fit filter.',
-      tradeoffs:'Review modeled costs and recorded demand.',checks:'Confirm delivery details.',referencedOptionIds:[first.id]};
+    }))}:{summary:'The current view reflects the assessment and schedule evidence.',
+      tradeoffs:'Review modeled costs and recorded demand.',checks:'Confirm delivery details.',
+      firstVisibleOptionId:snapshot.goalReview.firstVisible?.id??null,referencedOptionIds:[]};
     return Response.json({status:'completed',usage:{input_tokens:900,output_tokens:150},
       output:[{content:[{type:'output_text',text:JSON.stringify(value)}]}]});
   });
@@ -206,6 +212,23 @@ it('bounds spend, reuses one authoritative assessment, and gives Explain and exp
     expect(await included.text()).toContain('## AI explanation');
     const other=await staff('/staff/export','POST',{...view,goal:{...view.goal,filter:'all'}});
     expect(await other.text()).not.toContain('## AI explanation');
+    for(const [order,filter,lead,summary] of [
+      ['fit','all',first.id,'Surface-mounted court is first'],
+      ['baseline','all',unknown.id,'Confirmed staging with missing schedule is first'],
+      ['fit','weak',null,'No options match'],
+    ] as const) {
+      await db.prepare('UPDATE ai_staff_usage SET started=started-?').bind(ai.cooldownMs.staff).run();
+      const next={...view,goal:{...view.goal,order,filter}};
+      const explanation=await send<{summary:string}>(second,'/staff/explain','POST',next);
+      expect(explanation.summary).toContain(summary);
+      expect(lastExplanation?.goalReview).toMatchObject({
+        order:order==='fit'?'Goal fit':'Ordinary comparison',
+        orderChanged:order==='fit'&&filter==='all',
+        firstVisible:lead?expect.objectContaining({id:lead}):null,
+      });
+      if(order==='baseline')expect(explanation.summary).toContain('ordinary comparison order');
+      if(order==='fit'&&filter==='all')expect(explanation.summary).toContain('Goal fit changed the order');
+    }
     const finished=await db.prepare('SELECT started FROM ai_staff_usage').all<{started:number}>();
     expect(finished.results).toHaveLength(2);
     expect(ai.cooldownMs.staff).toBe(5_000);
@@ -261,6 +284,7 @@ it('preflights every goal batch before generation and evaluates a comparison wit
       if(String(input).endsWith('/input_tokens'))return Response.json({input_tokens:9_000});
       return Response.json({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify({
         summary:'The comparison contains seventy possible sites.',tradeoffs:'',checks:'',referencedOptionIds:[],
+        firstVisibleOptionId:scope.goalReview.firstVisible.id,
       })}]}]});
     }
     if(String(input).endsWith('/input_tokens')) {
@@ -290,7 +314,7 @@ it('preflights every goal batch before generation and evaluates a comparison wit
     expect(batches).toHaveLength(Math.ceil(sites.length/staffComparisonAI.goal.batchOptions));
     await db.prepare('UPDATE ai_staff_usage SET started=0').run();
     expect(await send(staff,'/staff/explain','POST',{...ref,goal:{...goal,filter:'all',order:'fit',evaluationKey:evaluation.evaluationKey}}))
-      .toMatchObject({summary:'The comparison contains seventy possible sites.'});
+      .toMatchObject({summary:expect.stringContaining('The comparison contains seventy possible sites.')});
     const scoped=await reference({...scene,selected:['scope-0'],selectedOnly:true});
     expect(await send(staff,'/staff/goals/preview','POST',{...scoped,goal})).toMatchObject({blocked:null,evaluation:null});
   } finally {vi.unstubAllGlobals();}

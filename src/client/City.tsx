@@ -1,7 +1,7 @@
 import { Download } from 'lucide-react';
 import { comparisonBriefFilename } from '../../config/app';
 import { mapArea } from '../../config/map-area';
-import { lazy,Suspense,useEffect,useState, type FormEvent } from 'react';
+import { lazy,Suspense,useEffect,useRef,useState, type FormEvent } from 'react';
 import { limits, planning } from '../../config/settings';
 import type { Category, EquipmentType, Explanation, Scenario } from '../contracts';
 import { goalRows, goalView, optionId, type GoalFilter, type GoalOrder } from '../goals';
@@ -12,7 +12,6 @@ import { GoalFitCell,GoalSelector,GoalStatus,useGoalReview,useProgramGoals } fro
 
 const MapView=lazy(()=>import('./Map'));
 const dollars=(amount:number|null)=>amount===null?'N/A':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(amount/100);
-type Result=Comparison&{explanation?:Explanation};
 const initial=(types:EquipmentType[]):Scenario=>({category:preferredType(types),radius:planning.radius,horizon:planning.horizon,budget:planning.budget,selected:[]});
 function InventoryPage({types}: {types:EquipmentType[]}) {
   const [inventory,setInventory]=useState<Inventory>();
@@ -37,20 +36,19 @@ export default function City({inventoryOnly,testWorkspace,types}: {inventoryOnly
 
 function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:EquipmentType[]}) {
   const [scenario,setScenario]=useState<Scenario>(()=>initial(types));
-  const [result,setResult]=useState<Result>();
+  const [result,setResult]=useState<Comparison>();
   const [resultCatalog,setResultCatalog]=useState<EquipmentType[]>();
   const [focused,setFocused]=useState('');
   const action=useAction();
   const report=useAction();
-  const ai=useAction();
   const programs=useProgramGoals();
   const [view,setView]=useState<{key:string;filter:GoalFilter;order:GoalOrder}>();
-  const [generated,setGenerated]=useState<{key:string;explanation:Explanation}>();
-  const [explanationAttempt,setExplanationAttempt]=useState('');
+  const [generated,setGenerated]=useState<{key:string;pending?:boolean;explanation?:Explanation;error?:string}>();
+  const explanationSequence=useRef(0);
   const available=types.some(type=>type.id===scenario.category);
   async function calculate(value:Scenario) {
     setResult(undefined);
-    const next=await api<Result>('/staff/compare','POST',value);
+    const next=await api<Comparison>('/staff/compare','POST',value);
     setResult(next);setResultCatalog(types);
   }
   useEffect(()=>{if(scenario.category)void action.run(()=>calculate(scenario));},[]);
@@ -74,7 +72,23 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
   const staleGoal=!!programs.selected&&(!goal||/changed|deleted|refresh the comparison/i.test(evaluation.status?.error??''));
   const reference=requestRef&&!staleGoal ? (goal?{...requestRef,goal:{id:goal.id,version:goal.version,filter,order,evaluationKey:review?.evaluationKey??null}}:requestRef) : null;
   const explanationKey=reference?JSON.stringify(reference):'';
-  const explanation=reference&&(generated?.key===explanationKey?generated.explanation:goal?undefined:current?.explanation);
+  const activeExplanation=generated?.key===explanationKey?generated:undefined;
+  const explanation=activeExplanation?.explanation;
+  useEffect(()=>{
+    explanationSequence.current++;
+    setGenerated(undefined);
+  },[explanationKey]);
+  async function requestExplanation() {
+    if(!reference||activeExplanation?.pending)return;
+    const attempt=++explanationSequence.current;
+    setGenerated({key:explanationKey,pending:true});
+    try {
+      const next=await api<Explanation>('/staff/explain','POST',reference);
+      if(attempt===explanationSequence.current)setGenerated({key:explanationKey,explanation:next});
+    } catch(error) {
+      if(attempt===explanationSequence.current)setGenerated({key:explanationKey,error:message(error)});
+    }
+  }
   function selectGoal(id:string) {
     if(id!==programs.selected)evaluation.reset();
     programs.select(id);setView(undefined);
@@ -207,11 +221,9 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
             const anchor=document.createElement('a');anchor.href=url;anchor.download=comparisonBriefFilename;anchor.click();
             setTimeout(()=>URL.revokeObjectURL(url),1000);
           },'Comparison brief downloaded.')}><Download className="action-icon" aria-hidden="true"/> Download brief</button>
-          {!testWorkspace && <button className="button" disabled={ai.busy||action.busy} onClick={()=>{
-            setExplanationAttempt(explanationKey);
-            void ai.run(async()=>setGenerated({key:explanationKey,explanation:await api<Explanation>('/staff/explain','POST',reference)}));
-          }}>{ai.busy?'Preparing explanation…':'Request AI explanation'}</button>}
-        </>}<span className="sr-only" role="status">{current && ai.busy?'Preparing explanation…':''}</span></div>
+          {!testWorkspace && <button className="button" disabled={activeExplanation?.pending||action.busy||evaluation.status?.evaluating}
+            onClick={()=>void requestExplanation()}>{activeExplanation?.pending?'Preparing explanation…':'Request AI explanation'}</button>}
+        </>}<span className="sr-only" role="status">{activeExplanation?.pending?'Preparing explanation…':''}</span></div>
       </div>
       <GoalSelector programs={programs} types={types} onSelect={selectGoal}/>
       {goal&&current&&<GoalStatus goal={review?.goal??goal} review={evaluation.status} view={goalDisplay}
@@ -220,11 +232,11 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
         onOrder={next=>{if(assessedKey)setView({key:assessedKey,filter,order:next});}}
         disabled={action.busy} evaluate={()=>void evaluation.submit(true)}/>}
       {goal&&current&&!review?.evaluation&&<p className="text-sm muted">Evaluate for qualitative fit. Explain can cover the current deterministic results.</p>}
-      {(report.status || report.error || (explanationAttempt===explanationKey && ai.error)) && <div className="md:text-right">
+      {(report.status || report.error || activeExplanation?.error) && <div className="md:text-right">
         <Feedback {...report}/>
-        {explanationAttempt===explanationKey && <Feedback error={ai.error}/>}
+        <Feedback error={activeExplanation?.error}/>
       </div>}
-      {explanation && !action.busy && !ai.busy && <article className="rounded-control bg-canvas p-4 md:max-xl:ml-auto md:max-xl:max-w-2xl" aria-labelledby="explanation-heading">
+      {explanation && !action.busy && <article className="rounded-control bg-canvas p-4 md:max-xl:ml-auto md:max-xl:max-w-2xl" aria-labelledby="explanation-heading">
         <h3 id="explanation-heading">AI explanation</h3>
         <p className="mt-2 break-words text-sm">{explanation.summary}</p>
         {explanation.tradeoffs && <p className="mt-2 break-words text-sm"><strong>Tradeoffs.</strong> {explanation.tradeoffs}</p>}

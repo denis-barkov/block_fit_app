@@ -111,6 +111,14 @@ export function goalView(rows:GoalRow[],filter:GoalFilter,order:GoalOrder) {
   return {counts,visible,shown:visible.length,hidden:rows.length-visible.length};
 }
 
+export function leadingGoalBasis(order:GoalOrder,first:GoalRow,second?:GoalRow):'only'|'ordinary'|'checks'|'fit'|'tie' {
+  if(!second)return 'only';
+  if(order==='baseline')return 'ordinary';
+  if(qualityGroup(first)!==qualityGroup(second))return 'checks';
+  if(fitOrder[first.fit]!==fitOrder[second.fit])return 'fit';
+  return 'tie';
+}
+
 const comparisonEvidence = [
   ['coverage','Recorded demand coverage'],['cost','Modeled costs and budget'],['checks','Feasibility and goal requirements'],
 ] as const;

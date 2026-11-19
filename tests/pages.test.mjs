@@ -103,6 +103,7 @@ it('derives the canonical URL from the owned Pages project and packages a privat
     }
     for(const filename of [
       'investment-comparison/explain-investment-options.txt',
+      'investment-comparison/explain-goal-investment-options.txt',
       'resident-travel/choose-destinations.txt',
       'resident-travel/explore-destination.txt',
       'investment-goals/evaluate-program-goal.txt',
