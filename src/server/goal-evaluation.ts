@@ -11,14 +11,24 @@ import { currentGoal } from './program-goals';
 import { loadPrompt } from './prompts';
 import { problem, type Env } from './web';
 
-const responseSchema=z.object({
-  clarification:z.string().nullable(),
-  assessments:z.array(z.object({
-    id:z.string(),fit:z.enum(fits),reason:z.string(),evidence:z.array(z.string()),
-    missing:z.array(z.string()),conflict:z.string().nullable(),
-  }).strict()),
+const assessmentSchema=z.object({
+  id:z.string(),fit:z.enum(fits),reason:z.string(),evidence:z.array(z.string()),
+  missing:z.array(z.string()),conflict:z.string().nullable(),
 }).strict();
-const {$schema,...schema}=z.toJSONSchema(responseSchema);
+const responseSchema=z.object({clarification:z.string().nullable(),assessments:z.array(assessmentSchema)}).strict();
+function outputSchema(expected:Map<string,Set<string>>) {
+  const text=z.string().min(1).max(goalLimits.reasonChars);
+  const citations=[...new Set([...expected.values()].flatMap(keys=>[...keys]))];
+  const {$schema,...schema}=z.toJSONSchema(responseSchema.extend({
+    clarification:text.nullable(),
+    assessments:z.array(assessmentSchema.extend({
+      id:z.enum([...expected.keys()]),evidence:z.array(z.enum(citations)).max(goalLimits.evidence),
+      reason:text,conflict:text.nullable(),
+      missing:z.array(z.string().min(1).max(goalLimits.missingChars)).max(goalLimits.missing),
+    })).max(expected.size),
+  }));
+  return schema;
+}
 const generation={store:false,service_tier:'default',max_output_tokens:ai.outputTokens} as const;
 const rubricVersion=1;
 
@@ -32,7 +42,7 @@ function snapshotForGoal(comparison:Comparison,goal:Goal) {
     const row=rows.get(id)!;
     const base=option.estimates.base;
     return {id,sites:[...option.ids].sort().map(id=>ids.get(id)!),coverage:[option.count,option.overlap],
-      costs:[base.upfront,base.lifecycle,base.fits,base.perRequester],feasibility:option.feasibility,
+      costs:[base.upfront,base.lifecycle,base.fits,base.perRequester===null?null:Math.round(base.perRequester)],feasibility:option.feasibility,
       requirements:row.requirement,eligibility:row.eligibility,
       gaps:[...new Set(option.missing.map(item=>item.key))].sort(),
       requirementDetails:row.requirements.map(entry=>[entry.code,entry.site&&ids.get(entry.site)]),
@@ -46,12 +56,12 @@ function snapshotForGoal(comparison:Comparison,goal:Goal) {
       horizonYears:scenario.horizon,demandCount:comparison.demandCount,unmet:comparison.unmet,
       syntheticDemandCount:comparison.origins.filter(origin=>origin.synthetic).length},
     provenance:'Site notes, schedule estimates and costs are supplied planning assumptions. Fixture entries are synthetic.',
-    siteFields:['name','type','fixture','feasibility','estimatedStart','estimatedReady','staffNotes','costSource','costRanges','replacement'],
+    siteFields:['name','type','fixture','feasibility','estimatedStart','estimatedReady','staffNotes','costSource','baseCostComponentsCents','replacement'],
     costOrder:costKeys,
     sites:orderedSites.map(site=>[site.name,site.categoryName,!!site.fixture,site.feasibility,site.estimatedStart??null,site.estimatedReady??null,
-      site.notes,site.costs.source,costKeys.map(key=>site.costs[key]?[site.costs[key].low,site.costs[key].base,site.costs[key].high]:null),
+      site.notes,site.costs.source,costKeys.map(key=>site.costs[key]?.base??null),
       [site.costs.replacementPlan,site.costs.interval]]),
-    evidence:'Use coverage for deduplicated new demand and overlap; cost for base upfront, lifecycle, budget fit and cost per requester; checks for requirements, feasibility and gaps; s1, s2, s3 for each option’s constituent sites in array order.',
+    evidence:'coverage: new demand, overlap. cost: base upfront cents, lifecycle cents, budget fit, cents per requester. checks: requirements, feasibility, gaps. s1, s2, s3: positions in the option’s sites list, which indexes the full sites array.',
     options:optionData,
   };
 }
@@ -64,7 +74,9 @@ export function parseGoalEvaluation(content:string,expected:Map<string,Set<strin
   try {data=JSON.parse(content);}catch {return {reason:'invalid_json'} as const;}
   const result=responseSchema.safeParse(data);
   if(!result.success)return {reason:'invalid_goal_shape'} as const;
-  const {clarification,assessments}=result.data;
+  const clarification=result.data.clarification?.trim()??null;
+  const assessments=result.data.assessments.map(row=>({...row,reason:row.reason.trim(),conflict:row.conflict?.trim()||null,
+    evidence:[...new Set(row.evidence)],missing:row.missing.map(item=>item.trim())}));
   if(clarification!==null) {
     if(assessments.length||!safeText(clarification,goalLimits.reasonChars))return {reason:'invalid_goal_clarification'} as const;
   } else if(assessments.length!==expected.size||new Set(assessments.map(row=>row.id)).size!==expected.size) {
@@ -72,11 +84,15 @@ export function parseGoalEvaluation(content:string,expected:Map<string,Set<strin
   }
   for(const row of assessments) {
     const allowed=expected.get(row.id);
-    if(!allowed||row.evidence.length>goalLimits.evidence||new Set(row.evidence).size!==row.evidence.length||
-      row.evidence.some(key=>!allowed.has(key))||(row.fit!=='insufficient'&&!row.evidence.length)||
-      row.missing.length>goalLimits.missing||row.missing.some(item=>!safeText(item,goalLimits.missingChars))||
-      !safeText(row.reason,goalLimits.reasonChars)||(row.conflict!==null&&!safeText(row.conflict,goalLimits.reasonChars))) {
+    if(!allowed||row.evidence.length>goalLimits.evidence||
+      row.evidence.some(key=>!allowed.has(key))||(row.fit!=='insufficient'&&!row.evidence.length)) {
       return {reason:'invalid_goal_evidence'} as const;
+    }
+    if(row.missing.length>goalLimits.missing||row.missing.some(item=>!safeText(item,goalLimits.missingChars))) {
+      return {reason:'invalid_goal_missing_facts'} as const;
+    }
+    if(!safeText(row.reason,goalLimits.reasonChars)||(row.conflict!==null&&!safeText(row.conflict,goalLimits.reasonChars))) {
+      return {reason:'invalid_goal_assessment_text'} as const;
     }
   }
   const stable={clarification,assessments:[...assessments].sort((a,b)=>a.id<b.id?-1:Number(a.id!==b.id))};
@@ -85,13 +101,13 @@ export function parseGoalEvaluation(content:string,expected:Map<string,Set<strin
 
 export async function prepareGoalEvaluation(env:Env,result:Comparison,goal:Goal) {
   const snapshot=snapshotForGoal(result,goal);
+  const expected=new Map(snapshot.options.map(option=>[option.id,new Set(evidenceLabels(result,option.id).keys())]));
   const instructions=loadPrompt('evaluate-program-goal',{output_word_limit:goalLimits.reasonWords});
   const payload={...modelParameters(env),input:[{role:'developer',content:instructions},
     {role:'user',content:JSON.stringify(snapshot)}],
-    text:{format:{type:'json_schema',name:'program_goal_assessment',strict:true,schema}}};
+    text:{format:{type:'json_schema',name:'program_goal_assessment',strict:true,schema:outputSchema(expected)}}};
   const key=await hash(JSON.stringify([rubricVersion,goal.id,goal.version,result.revision,result.testWorkspace??false,
     [...result.scenario.selected].sort(),payload,generation,ai.inputTokens]));
-  const expected=new Map(snapshot.options.map(option=>[option.id,new Set(evidenceLabels(result,option.id).keys())]));
   return {payload,generation,key,parse:(text:string)=>parseGoalEvaluation(text,expected)};
 }
 export type GoalReview={

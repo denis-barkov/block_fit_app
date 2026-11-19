@@ -46,7 +46,7 @@ it('round-trips private data into fresh D1, excludes sessions and preserves hist
   await fresh.prepare('UPDATE ai_total SET spent=100 WHERE id=1').run();
   await expect(restoreSnapshot(fresh,{...snapshot,migration:'unknown'})).rejects.toThrow('incompatible');
   const before=await getComparison(db,scenario);
-  await restoreSnapshot(fresh,snapshot);
+  await restoreSnapshot(fresh,{...snapshot,version:'0.4.3'});
   await expect(restoreSnapshot(fresh,snapshot)).rejects.toThrow('empty target');
   const {equipment_types,type_proposals,program_goals,...legacyRecords}=snapshot.records;
   legacyRecords.candidates=legacyRecords.candidates.map(({estimated_start,estimated_ready,...row})=>row);

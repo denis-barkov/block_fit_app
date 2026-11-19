@@ -95,6 +95,10 @@ it('accepts explicit clarification and rejects omitted options, unsafe shapes an
   const parse=(assessments:unknown[],clarification:string|null=null)=>parseGoalEvaluation(JSON.stringify({clarification,assessments}),expected);
   expect(parse([],'Which outcome matters most?').explanation).toMatchObject({assessments:[]});
   expect(parse([row,{...row,id:'b',fit:'insufficient',evidence:[],missing:['Youth participation data']}]).explanation?.assessments).toHaveLength(2);
+  expect(parse([row,{...row,id:'b',reason:` ${row.reason} `,evidence:['s1','s1'],conflict:' '}])
+    .explanation?.assessments[1]).toEqual({...row,id:'b'});
+  expect(parse([row,{...row,id:'b',evidence:['s2']}]).reason).toBe('invalid_goal_evidence');
+  expect(parse([row,{...row,id:'b',evidence:[]}]).reason).toBe('invalid_goal_evidence');
   for(const bad of [
     [row], [row,row], [row,{...row,id:'c'}], [row,{...row,id:'b',fit:'100%'}],
     [row,{...row,id:'b',evidence:['invented-measurement']}],
@@ -152,6 +156,12 @@ it('bounds spend, reuses one authoritative assessment, and gives Explain and exp
     expect(JSON.stringify(snapshot)).not.toContain('resident@goals.example');
     expect(JSON.stringify(snapshot)).not.toContain(String(pilot.center.lat));
     expect(JSON.stringify(snapshot)).not.toContain('requestDate');
+    if(assessment) {
+      const schema=payload.text.format.schema.properties.assessments;
+      expect(schema.items.properties.id.enum).toEqual(snapshot.options.map(({id}:{id:string})=>id));
+      expect(schema.items.properties.evidence.items.enum).toContain('s1');
+      expect(schema.items.properties.missing).toMatchObject({maxItems:goalLimits.missing,items:{maxLength:goalLimits.missingChars}});
+    }
     if(url.endsWith('input_tokens'))return Response.json({input_tokens:900});
     if(!assessment)lastExplanation=snapshot;
     else assessmentGoals.push(snapshot.goal);
