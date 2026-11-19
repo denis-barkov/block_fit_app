@@ -65,12 +65,14 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
   const evaluation=useGoalReview(goal,requestRef);
   const review=evaluation.status?.review;
   const assessedKey=review?.evaluation?.assessments.length?review.evaluationKey:null;
+  const appliedGoal=assessedKey?goal:undefined;
   const filter=assessedKey&&view?.key===assessedKey?view.filter:'all';
   const order=assessedKey?(view?.key===assessedKey?view.order:'fit'):'baseline';
-  const rows=current&&goal?goalRows(current,review?.goal??goal,review?.evaluation):[];
+  const rows=current&&appliedGoal?goalRows(current,review?.goal??appliedGoal,review?.evaluation):[];
   const goalDisplay=goalView(rows,filter,order);
-  const staleGoal=!!programs.selected&&(!goal||/changed|deleted|refresh the comparison/i.test(evaluation.status?.error??''));
-  const reference=requestRef&&!staleGoal ? (goal?{...requestRef,goal:{id:goal.id,version:goal.version,filter,order,evaluationKey:review?.evaluationKey??null}}:requestRef) : null;
+  const reference=requestRef&&appliedGoal
+    ?{...requestRef,goal:{id:appliedGoal.id,version:appliedGoal.version,filter,order,evaluationKey:assessedKey}}
+    :requestRef;
   const explanationKey=reference?JSON.stringify(reference):'';
   const activeExplanation=generated?.key===explanationKey?generated:undefined;
   const explanation=activeExplanation?.explanation;
@@ -94,7 +96,7 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
     programs.select(id);setView(undefined);
   }
   const optionById=new Map(current?.options.map(option=>[optionId(option.ids),option]));
-  const visibleOptions=goal?goalDisplay.visible.flatMap(row=>{
+  const visibleOptions=appliedGoal?goalDisplay.visible.flatMap(row=>{
     const option=optionById.get(row.id);
     return option?[{option,row}]:[];
   }):current?.options.map(option=>({option,row:undefined}))??[];
@@ -231,7 +233,6 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
         onFilter={next=>{if(assessedKey)setView({key:assessedKey,filter:next,order});}}
         onOrder={next=>{if(assessedKey)setView({key:assessedKey,filter,order:next});}}
         disabled={action.busy} evaluate={()=>void evaluation.submit(true)}/>}
-      {goal&&current&&!review?.evaluation&&<p className="text-sm muted">Evaluate for qualitative fit. Explain can cover the current deterministic results.</p>}
       {(report.status || report.error || activeExplanation?.error) && <div className="md:text-right">
         <Feedback {...report}/>
         <Feedback error={activeExplanation?.error}/>
@@ -255,8 +256,8 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
           <table className="preview-table"><thead><tr>
             <th scope="col">Option</th><th scope="col">Newly covered</th><th scope="col">Upfront / budget fit</th>
             <th scope="col">Lifecycle</th><th scope="col">Lifecycle per requester</th><th scope="col">Feasibility</th>
-            {goal&&<th scope="col"><InfoHint label="About goal fit" content={<p>AI assessment of the selected goal using available evidence. Costs and requirements are checked separately.</p>}>
-              <span>Goal fit<span className="block text-xs break-words">{goal.name}</span></span>
+            {appliedGoal&&<th scope="col"><InfoHint label="About goal fit" content={<p>AI assessment of the selected goal using available evidence. Costs and requirements are checked separately.</p>}>
+              <span>Goal fit<span className="block text-xs break-words">{appliedGoal.name}</span></span>
             </InfoHint></th>}
           </tr></thead><tbody>{visibleOptions.map(({option,row})=>{
             const key=option.ids.join(',');
@@ -266,7 +267,7 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
                   onClick={()=>selectCandidate(option.ids[0])}>{label(option.ids[0])}</button> :
                 <strong>{option.ids.map(id=>label(id)).join(' + ')}</strong>}
                 {option.ids.some(id=>current.sites.find(site=>site.id===id)?.fixture) && <p className="text-xs muted">Illustrative demo assumptions</p>}
-                {current.highlighted.includes(key) && <p className="mt-1 text-xs font-bold text-brand">Lowest modeled cost per newly covered requester{goal?' in the ordinary comparison':''}</p>}
+                {current.highlighted.includes(key) && <p className="mt-1 text-xs font-bold text-brand">Lowest modeled cost per newly covered requester{appliedGoal?' in the ordinary comparison':''}</p>}
                 {!!option.missing.length && <p className="mt-1 text-xs muted">Unknown: {[...new Set(option.missing.map(x=>x.key))].join(', ')}</p>}</td>
               <td>{option.count}{option.ids.length>1 && <p className="text-xs muted">{option.overlap} in overlapping radii, counted once</p>}</td>
               <td>{dollars(option.estimates.base.upfront)}<br/>{option.estimates.base.fits===null?'Unknown':option.estimates.base.fits?'Within budget':'Over budget'}

@@ -584,6 +584,7 @@ test('staff saves a goal, evaluates and filters options, and clears the goal wit
     let explanationFilter='';
     let explanationOrder='';
     let holdExplanation:Promise<void>|undefined;
+    let clarify=false;
     let cachedPreview:{goal:{id:string;version:number}}|undefined;
     await page.route('**/api/staff/goals/preview',async route=>{
       const goal=route.request().postDataJSON().goal;
@@ -599,8 +600,8 @@ test('staff saves a goal, evaluates and filters options, and clears the goal wit
       const prior=await page.request.post('/api/staff/goals/preview',{headers:{Origin:baseURL!},data:request});
       const preview=await prior.json();
       const delivery=preview.goal.name==='Delivery readiness';
-      const response={...preview,evaluationKey:'a'.repeat(64),evaluation:{clarification:null,
-        assessments:comparison.options.map((option,index)=>({id:[...option.ids].sort().join(','),
+      const response={...preview,evaluationKey:'a'.repeat(64),evaluation:{clarification:clarify?'What disturbance is acceptable?':null,
+        assessments:clarify?[]:comparison.options.map((option,index)=>({id:[...option.ids].sort().join(','),
           fit:(delivery?option.ids[0]==='demo-v3-east-gate-candidate':index===0)?'strong':'partial',
           reason:delivery?'The delivery goal prioritizes the confirmed inspection slot.':'The disruption goal prioritizes avoiding excavation.',
           evidence:['s1'],missing:['Confirm staging access'],conflict:null}))}};
@@ -609,10 +610,11 @@ test('staff saves a goal, evaluates and filters options, and clears the goal wit
     });
     await page.route('**/api/staff/explain',async route=>{
       explanations++;
-      explanationFilter=route.request().postDataJSON().goal?.filter;
-      explanationOrder=route.request().postDataJSON().goal?.order;
+      const goal=route.request().postDataJSON().goal;
+      explanationFilter=goal?.filter;
+      explanationOrder=goal?.order;
       await holdExplanation;
-      await route.fulfill({json:{summary:'The goal filters the current comparison.',tradeoffs:'Review the modeled costs.',
+      await route.fulfill({json:{summary:goal?'An existing pad avoids excavation.':'Compare modeled coverage and lifecycle costs.',tradeoffs:'Review the modeled costs.',
         checks:'Confirm the estimates.',highlightedOptionIds:[],referencedOptionIds:[]}});
     });
     const budget=page.getByLabel('Upfront budget (USD)');
@@ -634,14 +636,20 @@ test('staff saves a goal, evaluates and filters options, and clears the goal wit
     await expect(editor).toHaveCount(0);
     await expect(page.getByRole('combobox',{name:'Program goal',exact:true}).locator('option:checked')).toHaveText('Low disruption');
     await expect(context.getByRole('combobox',{name:'Program goal',exact:true})).toHaveValue('');
-    await expect(table.getByRole('columnheader',{name:/Goal fit/})).toBeVisible();
+    await expect(table.getByRole('columnheader',{name:/Goal fit/})).toHaveCount(0);
     await expect(page.getByLabel('Filter by goal fit')).toHaveCount(0);
     await expect(page.getByLabel('Option ordering')).toHaveCount(0);
     await expect(page.getByRole('region',{name:'Goal review'})).toContainText('Start on or after 2027-03-01');
     expect(evaluations).toBe(0);
     expect(explanations).toBe(0);
+    await page.getByRole('button',{name:'Request AI explanation'}).click();
+    await expect(page.getByRole('article',{name:'AI explanation'})).toContainText('Compare modeled coverage and lifecycle costs.');
+    expect(explanationFilter).toBeUndefined();
+    expect(explanationOrder).toBeUndefined();
     await page.getByRole('button',{name:'Evaluate goal'}).click();
     await expect(page.getByLabel('Option ordering')).toHaveValue('fit');
+    await expect(table.getByRole('columnheader',{name:/Goal fit/})).toBeVisible();
+    await expect(page.getByRole('article',{name:'AI explanation'})).toHaveCount(0);
     const hint=table.getByRole('button',{name:/Goal evidence for/}).first();
     await hint.press('Enter');
     await expect(hint).toHaveAttribute('aria-expanded','true');
@@ -650,7 +658,7 @@ test('staff saves a goal, evaluates and filters options, and clears the goal wit
     await expect(hint).toHaveAttribute('aria-expanded','false');
     await expect(hint).toBeFocused();
     expect(evaluations).toBe(1);
-    expect(explanations).toBe(0);
+    expect(explanations).toBe(1);
     await page.screenshot({path:test.info().outputPath('goal-table-1440.png'),animations:'disabled',fullPage:true});
     await page.getByLabel('Filter by goal fit').selectOption('strong');
     await expect(page.getByText('No options match this filter.',{exact:false})).toBeVisible();
@@ -660,7 +668,7 @@ test('staff saves a goal, evaluates and filters options, and clears the goal wit
     expect(explanationFilter).toBe('strong');
     expect(explanationOrder).toBe('fit');
     expect(evaluations).toBe(1);
-    expect(explanations).toBe(1);
+    expect(explanations).toBe(2);
     await page.getByLabel('Option ordering').selectOption('baseline');
     await expect(page.getByRole('heading',{name:'AI explanation'})).toHaveCount(0);
     await page.getByLabel('Option ordering').selectOption('fit');
@@ -695,6 +703,7 @@ test('staff saves a goal, evaluates and filters options, and clears the goal wit
     await editor.getByRole('button',{name:'Save goal'}).click();
     await expect(editor).toHaveCount(0);
     await expect(page.getByRole('heading',{name:'AI explanation'})).toHaveCount(0);
+    await expect(table.getByRole('columnheader',{name:/Goal fit/})).toHaveCount(0);
     await expect(page.getByLabel('Filter by goal fit')).toHaveCount(0);
     await expect(page.getByLabel('Option ordering')).toHaveCount(0);
     await page.getByRole('button',{name:'Evaluate goal'}).click();
@@ -709,10 +718,17 @@ test('staff saves a goal, evaluates and filters options, and clears the goal wit
     await expect(page.getByRole('button',{name:'Evaluate goal'})).toBeEnabled();
     await expect(page.getByLabel('Filter by goal fit')).toHaveCount(0);
     await expect(page.getByLabel('Option ordering')).toHaveCount(0);
+    clarify=true;
+    await page.getByRole('button',{name:'Evaluate goal'}).click();
+    await expect(page.getByRole('region',{name:'Goal review'})).toContainText('What disturbance is acceptable?');
+    await expect(table.getByRole('columnheader',{name:/Goal fit/})).toHaveCount(0);
+    await page.getByRole('button',{name:'Request AI explanation'}).click();
+    await expect(page.getByRole('article',{name:'AI explanation'})).toContainText('Compare modeled coverage and lifecycle costs.');
+    expect(explanationFilter).toBeUndefined();
     await page.getByRole('button',{name:'Clear goal'}).click();
     await expect(table.getByRole('columnheader',{name:/Goal fit/})).toHaveCount(0);
     await expect(page.getByRole('region',{name:'Goal review'})).toHaveCount(0);
     await expect(budget).toHaveValue('27000');
-    expect(evaluations).toBe(2);
+    expect(evaluations).toBe(3);
   } finally {await context.close();}
 });

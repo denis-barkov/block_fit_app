@@ -166,21 +166,32 @@ it('bounds spend, reuses one authoritative assessment, and gives Explain and exp
     if(url.endsWith('input_tokens'))return Response.json({input_tokens:900});
     if(!assessment) {
       lastExplanation=snapshot;
-      expect(payload.input[0].content).toContain('The current filter and order are authoritative.');
-      const first=snapshot.goalReview.firstVisible;
-      expect(payload.text.format.schema.properties.firstVisibleOptionId)
-        .toMatchObject(first?{enum:[first.id]}:{type:'null'});
+      const firstVisible=snapshot.goalReview?.firstVisible;
+      if(snapshot.goalReview) {
+        expect(payload.input[0].content).toContain('Open the summary with the concrete fact');
+        expect(payload.text.format.schema.properties.firstVisibleOptionId)
+          .toMatchObject(firstVisible?{enum:[firstVisible.id]}:{type:'null'});
+      } else {
+        expect(payload.input[0].content).toContain('Lead with the calculated highlight');
+        expect(payload.text.format.schema.properties).not.toHaveProperty('firstVisibleOptionId');
+        expect(snapshot.options.every((option:{goal?:unknown})=>!option.goal)).toBe(true);
+      }
     } else assessmentGoals.push(snapshot.goal);
     const delivering=snapshot.goal?.id===deliveryGoal.id;
     const preferred=delivering?unknown.id:first.id;
+    const lead=snapshot.goalReview?.firstVisible?.id;
+    const summary=!snapshot.goalReview?'The ordinary comparison uses modeled cost and coverage.':
+      lead===first.id?'The installation can use the existing surface with limited ground disturbance.':
+      lead===unknown.id?'The staging slot is documented, but start and completion dates are missing.':
+      'The assessments show strong fit or insufficient evidence, with no weak ratings.';
     const value=assessment?{clarification:null,assessments:snapshot.options.map(({id}: {id:string})=>({
       id,fit:id===preferred?'strong':'insufficient',reason:delivering?
         (id===preferred?(snapshot.goal.version===2?'The revised goal prioritizes utility review.':'The staging slot is confirmed.'):'Staging confirmation is missing.'):
         (id===preferred?'The supplied site notes describe a surface-mounted installation.':'Delivery evidence is missing.'),
       evidence:['s1'],missing:id===preferred?[]:['Delivery readiness'],conflict:null,
-    }))}:{summary:'The current view reflects the assessment and schedule evidence.',
+    }))}:{summary,
       tradeoffs:'Review modeled costs and recorded demand.',checks:'Confirm delivery details.',
-      firstVisibleOptionId:snapshot.goalReview.firstVisible?.id??null,referencedOptionIds:[]};
+      ...(snapshot.goalReview?{firstVisibleOptionId:lead??null}:{}),referencedOptionIds:[]};
     return Response.json({status:'completed',usage:{input_tokens:900,output_tokens:150},
       output:[{content:[{type:'output_text',text:JSON.stringify(value)}]}]});
   });
@@ -188,6 +199,16 @@ it('bounds spend, reuses one authoritative assessment, and gives Explain and exp
     expect(await send(staff,'/staff/goals/preview','POST',{...ref,goal})).toMatchObject({evaluation:null});
     expect(await send(staff,'/staff/goals/evaluate','POST',{...ref,goal:structured})).toMatchObject({blocked:expect.stringContaining('No AI evaluation')});
     expect(calls).toHaveLength(0);
+    const pending={...ref,goal:{...goal,filter:'strong',order:'fit',evaluationKey:null}};
+    expect(await send(second,'/staff/explain','POST',pending))
+      .toMatchObject({summary:'The ordinary comparison uses modeled cost and coverage.'});
+    expect(lastExplanation?.goalReview).toBeUndefined();
+    expect(await (await staff('/staff/export','POST',pending)).text()).not.toContain('## Program goal');
+    expect(await send(second,'/staff/explain','POST',ref))
+      .toMatchObject({summary:'The ordinary comparison uses modeled cost and coverage.'});
+    expect(calls).toEqual(['explain:count','explain:generate']);
+    calls.length=0;
+    await db.prepare('UPDATE ai_staff_usage SET started=started-?').bind(ai.cooldownMs.staff).run();
     const evaluated=await send<{evaluationKey:string}>(staff,'/staff/goals/evaluate','POST',{...ref,goal});
     expect(evaluated).toMatchObject({evaluation:{assessments:expect.arrayContaining([{id:first.id,fit:'strong',reason:expect.any(String),
       evidence:['s1'],missing:[],conflict:null}])}});
@@ -213,21 +234,18 @@ it('bounds spend, reuses one authoritative assessment, and gives Explain and exp
     const other=await staff('/staff/export','POST',{...view,goal:{...view.goal,filter:'all'}});
     expect(await other.text()).not.toContain('## AI explanation');
     for(const [order,filter,lead,summary] of [
-      ['fit','all',first.id,'Surface-mounted court is first'],
-      ['baseline','all',unknown.id,'Confirmed staging with missing schedule is first'],
-      ['fit','weak',null,'No options match'],
+      ['fit','all',first.id,'The installation can use the existing surface with limited ground disturbance.'],
+      ['baseline','all',unknown.id,'The staging slot is documented, but start and completion dates are missing.'],
+      ['fit','weak',null,'The assessments show strong fit or insufficient evidence, with no weak ratings.'],
     ] as const) {
       await db.prepare('UPDATE ai_staff_usage SET started=started-?').bind(ai.cooldownMs.staff).run();
       const next={...view,goal:{...view.goal,order,filter}};
       const explanation=await send<{summary:string}>(second,'/staff/explain','POST',next);
-      expect(explanation.summary).toContain(summary);
+      expect(explanation.summary).toBe(summary);
       expect(lastExplanation?.goalReview).toMatchObject({
         order:order==='fit'?'Goal fit':'Ordinary comparison',
-        orderChanged:order==='fit'&&filter==='all',
         firstVisible:lead?expect.objectContaining({id:lead}):null,
       });
-      if(order==='baseline')expect(explanation.summary).toContain('ordinary comparison order');
-      if(order==='fit'&&filter==='all')expect(explanation.summary).toContain('Goal fit changed the order');
     }
     const finished=await db.prepare('SELECT started FROM ai_staff_usage').all<{started:number}>();
     expect(finished.results).toHaveLength(2);

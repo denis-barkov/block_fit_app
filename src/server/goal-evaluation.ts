@@ -140,7 +140,7 @@ export type GoalReview={
 };
 export function goalEvaluationBlock(result:Comparison,goal:Goal) {
   if(goal.allowedTypes.length&&!goal.allowedTypes.includes(result.scenario.category))return 'The current comparison equipment type is outside this goal.';
-  if(goal.description===structuredGoalDescription)return 'This goal uses equipment and date requirements only. No AI evaluation is needed.';
+  if(goal.description===structuredGoalDescription)return 'No AI evaluation is available for a requirements-only goal. Add a qualitative objective to evaluate it.';
   if(!result.options.length)return 'There are no options in this comparison to evaluate.';
   return null;
 }
@@ -183,7 +183,6 @@ export function goalExplanationContext(result:Comparison,review:GoalReview,filte
   const view=goalView(rows,filter,order);
   const [first,second]=view.visible;
   const positions=new Map(view.visible.map((row,index)=>[row.id,index+1]));
-  const ordinary=rows.filter(row=>positions.has(row.id));
   const detailed=new Set(view.visible.slice(0,staffComparisonAI.explanation.detailOptions).map(row=>row.id));
   return {
     goal:{id:goal.id,version:goal.version,name:goal.name,description:goal.description,earliestStart:goal.earliestStart,targetCompletion:goal.targetCompletion,
@@ -191,7 +190,6 @@ export function goalExplanationContext(result:Comparison,review:GoalReview,filte
     clarification:evaluation?.clarification??null, qualitativeFit:evaluation?'assessed':review.blocked??'not evaluated',
     filter:goalFilterLabels[filter],order:order==='fit'?'Goal fit':'Ordinary comparison',counts:view.counts,shown:view.shown,hidden:view.hidden,
     evaluationKey:review.evaluationKey,
-    orderChanged:ordinary.some((row,index)=>view.visible[index]?.id!==row.id),
     firstVisible:first?{id:first.id,basis:leadingGoalBasis(order,first,second),fit:fitLabels[first.fit]}:null,
     options:rows.map((row,index)=>({id:row.id,requirements:row.requirement,eligibility:row.eligibility,
       baselinePosition:index+1,visiblePosition:positions.get(row.id)??null,fit:row.fit,

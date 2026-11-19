@@ -86,10 +86,11 @@ const reference=comparisonRef.extend({goal:goalViewInput.optional()}).strict();
 const staffScope=(c:Context<App>)=>hash(JSON.stringify(['staff-generation',c.env.AUTH_SECRET,c.get('user').id]));
 type ViewInput=z.infer<typeof goalViewInput>;
 async function visibleGoal(c:Context<App>,result:Comparison,view:ViewInput) {
+  if(!view.evaluationKey)return;
   const review=await goalReview(c.env,result,view);
-  if(view.evaluationKey && review.evaluationKey!==view.evaluationKey)
+  if(review.evaluationKey!==view.evaluationKey)
     problem(409,'The goal evaluation changed or expired. Refresh its results.');
-  return view.evaluationKey?review:{...review,evaluation:null,evaluationKey:null};
+  if(review.evaluation?.assessments.length)return review;
 }
 staff.post('/goals/preview',async c=>{
   const {scenario,revision,goal}=await body(c,goalComparisonRef);
@@ -106,7 +107,7 @@ staff.post('/export',async c => {
   const review=goal?await visibleGoal(c,result,goal):undefined;
   const context=goal&&review?goalExplanationContext(result,review,goal.filter,goal.order):undefined;
   const section=goal&&review?goalBrief(result,review,goal.filter,goal.order):undefined;
-  return c.body(makeBrief({...result,calculatedAt},isTest(c)&&!goal?undefined:await cachedExplanation(c.env,result,context),section),200,{
+  return c.body(makeBrief({...result,calculatedAt},isTest(c)&&!review?undefined:await cachedExplanation(c.env,result,context),section),200,{
     'Content-Type':'text/markdown; charset=UTF-8','Content-Disposition':`attachment; filename="${comparisonBriefFilename}"`,
   });
 });
@@ -115,6 +116,6 @@ staff.post('/explain',async c => {
   const {scenario,revision,goal} = await body(c,reference);
   const result = await comparison(c.env.DB,scenario,isTest(c),revision);
   const review=goal?await visibleGoal(c,result,goal):undefined;
-  return c.json(await explain(c.env,result,fetch,c.get('requestId'),{staffScope:await staffScope(c),testWorkspace:isTest(c),goal},
+  return c.json(await explain(c.env,result,fetch,c.get('requestId'),{staffScope:await staffScope(c),testWorkspace:isTest(c),goal:review?goal:undefined},
     goal&&review?goalExplanationContext(result,review,goal.filter,goal.order):undefined));
 });

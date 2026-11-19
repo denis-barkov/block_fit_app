@@ -32,14 +32,13 @@ export function explanationRequest(env: Env, comparison: Comparison, goal?:GoalE
     firstVisibleOptionId:firstId?z.enum([firstId]):z.null(),
   }):providerExplanationSchema;
   const {$schema,...outputSchema}=z.toJSONSchema(responseSchema);
-  const orderNote=goal?visibleOrderNote(snapshot,goal):'';
   const payload = {
     ...modelParameters(env),
     input:[{role:'developer',content},{role:'user',content:JSON.stringify(input)}],
     text:{format:{type:'json_schema',name:'comparison_explanation',strict:true,schema:outputSchema}},
   };
   return {payload,snapshot,generation,evaluationKey,size:{options:snapshot.options.length,limits:staffComparisonAI.explanation},
-    parse:(content:string)=>parseExplanation(content,snapshot,responseSchema,orderNote)};
+    parse:(content:string)=>parseExplanation(content,snapshot,responseSchema)};
 }
 
 export async function explanationCacheKey(revision: number, request: ReturnType<typeof explanationRequest>, version = schemaVersion) {
@@ -47,24 +46,8 @@ export async function explanationCacheKey(revision: number, request: ReturnType<
   return hash(input);
 }
 
-function visibleOrderNote(snapshot:ReturnType<typeof comparisonSnapshot>,goal:GoalExplanation) {
-  const lead=goal.firstVisible;
-  if(!lead)return `No options match the “${goal.filter}” filter for ${goal.goal.name}.`;
-  const name=snapshot.options.find(option=>option.id===lead.id)?.name??lead.id;
-  const leadNote=`${name} is first in the “${goal.filter}” view for ${goal.goal.name}.`;
-  if(lead.basis==='only')return `${leadNote} It is the only option shown.`;
-  if(lead.basis==='ordinary')return `${leadNote} The table keeps the ordinary comparison order after applying the filter.`;
-  const orderNote=goal.orderChanged?'Goal fit changed the order of the visible options.':'Goal fit kept the same order for these visible options.';
-  const basis={
-    checks:'Its requirement and eligibility checks place it ahead of the next visible option.',
-    fit:`Its ${lead.fit.toLowerCase()} goal-fit rating places it ahead of the next visible option.`,
-    tie:'It keeps its ordinary position ahead of equally ranked options.',
-  };
-  return `${leadNote} ${orderNote} ${basis[lead.basis]}`;
-}
-
 function parseExplanation(content:string,snapshot:ReturnType<typeof comparisonSnapshot>,
-  schema:typeof providerExplanationSchema,orderNote:string) {
+  schema:typeof providerExplanationSchema) {
   let value: unknown;
   try { value = JSON.parse(content); }
   catch { return {reason:'invalid_json'} as const; }
@@ -77,7 +60,7 @@ function parseExplanation(content:string,snapshot:ReturnType<typeof comparisonSn
   if (result.referencedOptionIds.some(id => !knownIds.has(id))) return {reason:'unknown_option'} as const;
   const providerOutput = {...result,summary:sections[0],tradeoffs:sections[1],checks:sections[2],
     referencedOptionIds:[...new Set(result.referencedOptionIds)]};
-  const explanation: Explanation = {summary:[orderNote,providerOutput.summary].filter(Boolean).join(' '),
+  const explanation: Explanation = {summary:providerOutput.summary,
     tradeoffs:providerOutput.tradeoffs,checks:providerOutput.checks,referencedOptionIds:providerOutput.referencedOptionIds,
     highlightedOptionIds:snapshot.ranking.highlightedOptionIds};
   return {explanation,providerOutput} as const;
