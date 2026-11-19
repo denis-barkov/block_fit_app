@@ -72,6 +72,7 @@ it('blocks anonymous, staff, and automated-test accounts and returns empty witho
 });
 
 it('selects nearest across pages, keeps scoped caches and shares cooldown across modes',async()=>{
+  expect(travel.ai.cooldownMs).toBe(15_000);
   const response=await request(first,input);
   expect(response.status).toBe(200);
   const data=await response.json() as TravelResponse;

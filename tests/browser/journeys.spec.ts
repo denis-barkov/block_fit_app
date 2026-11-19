@@ -560,9 +560,12 @@ test('staff saves a goal, evaluates and filters options, and clears the goal wit
       const comparison=await compare.json() as {options:{ids:string[]}[]};
       const prior=await page.request.post('/api/staff/goals/preview',{headers:{Origin:baseURL!},data:request});
       const preview=await prior.json();
+      const delivery=preview.goal.name==='Delivery readiness';
       await route.fulfill({json:{...preview,evaluationKey:'a'.repeat(64),evaluation:{clarification:null,
-        assessments:comparison.options.map((option,index)=>({id:[...option.ids].sort().join(','),fit:index===0?'strong':'partial',
-          reason:'Illustrative site notes support this assessment.',evidence:['s1'],missing:['Confirm staging access'],conflict:null}))}}});
+        assessments:comparison.options.map((option,index)=>({id:[...option.ids].sort().join(','),
+          fit:(delivery?option.ids[0]==='demo-v3-east-gate-candidate':index===0)?'strong':'partial',
+          reason:delivery?'The delivery goal prioritizes the confirmed inspection slot.':'The disruption goal prioritizes avoiding excavation.',
+          evidence:['s1'],missing:['Confirm staging access'],conflict:null}))}}});
     });
     await page.route('**/api/staff/explain',async route=>{
       explanations++;
@@ -590,6 +593,7 @@ test('staff saves a goal, evaluates and filters options, and clears the goal wit
     await expect(page.getByRole('combobox',{name:'Program goal',exact:true}).locator('option:checked')).toHaveText('Low disruption');
     await expect(context.getByRole('combobox',{name:'Program goal',exact:true})).toHaveValue('');
     await expect(table.getByRole('columnheader',{name:/Goal fit/})).toBeVisible();
+    await expect(page.getByLabel('Option ordering')).toHaveValue('fit');
     await expect(page.getByRole('region',{name:'Goal review'})).toContainText('Start on or after 2027-03-01');
     expect(evaluations).toBe(0);
     expect(explanations).toBe(0);
@@ -597,7 +601,7 @@ test('staff saves a goal, evaluates and filters options, and clears the goal wit
     const hint=table.getByRole('button',{name:/Goal evidence for/}).first();
     await hint.press('Enter');
     await expect(hint).toHaveAttribute('aria-expanded','true');
-    await expect(table.getByText('Illustrative site notes support this assessment.').first()).toBeVisible();
+    await expect(table.getByText('The disruption goal prioritizes avoiding excavation.').first()).toBeVisible();
     await hint.press('Escape');
     await expect(hint).toHaveAttribute('aria-expanded','false');
     await expect(hint).toBeFocused();
@@ -618,10 +622,25 @@ test('staff saves a goal, evaluates and filters options, and clears the goal wit
     await page.setViewportSize({width:390,height:844});
     await noPageOverflow(page);
     await page.getByRole('region',{name:'Goal review'}).screenshot({path:test.info().outputPath('goal-status-390.png'),animations:'disabled'});
+    await page.getByRole('button',{name:'Manage goals'}).click();
+    await editor.getByRole('combobox',{name:'Goal to edit'}).selectOption('');
+    await editor.getByLabel('Short name').fill('Delivery readiness');
+    await editor.getByLabel('Description').fill('Prioritize confirmed inspection and delivery slots.');
+    await editor.getByRole('button',{name:'Save goal'}).click();
+    await expect(editor).toHaveCount(0);
+    await expect(page.getByLabel('Filter by goal fit')).toHaveValue('all');
+    await expect(page.getByLabel('Option ordering')).toHaveValue('fit');
+    await page.getByRole('button',{name:'Evaluate goal'}).click();
+    const lead=table.getByRole('row').nth(1);
+    await expect(lead).toContainText('East gate training plaza');
+    await lead.getByRole('button',{name:/Goal evidence for/}).click();
+    await expect(lead).toContainText('The delivery goal prioritizes the confirmed inspection slot.');
+    await page.getByLabel('Filter by goal fit').selectOption('strong');
+    await expect(table.getByRole('row')).toHaveCount(2);
     await page.getByRole('button',{name:'Clear goal'}).click();
     await expect(table.getByRole('columnheader',{name:/Goal fit/})).toHaveCount(0);
     await expect(page.getByRole('region',{name:'Goal review'})).toHaveCount(0);
     await expect(budget).toHaveValue('27000');
-    expect(evaluations).toBe(1);
+    expect(evaluations).toBe(2);
   } finally {await context.close();}
 });

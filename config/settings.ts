@@ -5,7 +5,7 @@ export const pilot = {
   neighborhood: demoNeighborhood,
   name: `${demoNeighborhood}, Queens`,
   center: { lat: 40.7202, lng: -73.8470 },
-  demoOverview: { south: 40.713, north: 40.729, west: -73.856, east: -73.839 },
+  demoOverview: { south: 40.712, north: 40.739, west: -73.879, east: -73.825 },
 };
 export const planning = {
   radius: 200, minRadius: 50, maxRadius: 1000, horizon: 10, maxHorizon: 50,
@@ -18,5 +18,5 @@ export const limits = {
 export const ai = {
   daily: 150, inputTokens: 2000, outputTokens: 1000,
   cacheDays: 7, cacheEntries: 100, outputWords: 220, inputBytes: 12_000,
-  staffCooldownMs:60_000, reservationMs:120_000,
+  staffCooldownMs:15_000, reservationMs:120_000,
 };

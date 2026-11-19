@@ -47,7 +47,7 @@ it('produces reproducible land clusters and materially different investment outc
   expect(points.some(p=>points.filter(other=>metres(p,other)<70).length>=6)).toBe(true);
   await seedDataset(db);
   const plan=await demoPlan(db);
-  expect(plan).toMatchObject({version:demoVersion,counts:{equipment:15,candidates:8,synthetic_demand:81}});
+  expect(plan).toMatchObject({version:demoVersion,counts:{parks:8,equipment:29,candidates:15,synthetic_demand:153}});
   const result=await getComparison(db,scenario);
   const option=id=>result.options.find(entry=>entry.ids.join(',')===id);
   expect(result.unmet).toBeGreaterThan(option('demo-a,demo-b').count);
@@ -68,7 +68,7 @@ it('produces reproducible land clusters and materially different investment outc
   expect((await getComparison(db,scenario)).revision).toBe(result.revision);
 });
 
-it('moves a legacy fixture to v2 without changing manual inventory or account records',async()=>{
+it('upgrades the original fixture without changing manual inventory or account records',async()=>{
   const legacy=await database(false);
   try {
     const d=legacy.env.DB;

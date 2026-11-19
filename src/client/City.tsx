@@ -74,7 +74,7 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
   const explanationKey=reference?JSON.stringify(reference):'';
   const explanation=reference&&(generated?.key===explanationKey?generated.explanation:goal?undefined:current?.explanation);
   function selectGoal(id:string) {
-    programs.select(id);setFilter('all');setOrder('baseline');
+    programs.select(id);setFilter('all');setOrder(id?'fit':'baseline');
   }
   const optionById=new Map(current?.options.map(option=>[optionId(option.ids),option]));
   const visibleOptions=goal?goalDisplay.visible.flatMap(row=>{

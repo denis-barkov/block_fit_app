@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { goalLimits, structuredGoalDescription } from '../config/goals';
-import { pilot, planning } from '../config/settings';
+import { ai, pilot, planning } from '../config/settings';
 import type { Candidate, Scenario } from '../src/contracts';
 import { goalRows, goalView, type Goal, type GoalInput } from '../src/goals';
 import { createAuth } from '../src/server/auth';
@@ -132,11 +132,16 @@ it('bounds spend, reuses one authoritative assessment, and gives Explain and exp
   expect((await staff('/staff/inventory/candidates','POST',candidateBody('Invalid order',
     {estimatedStart:'2027-05-02',estimatedReady:'2027-05-01'}))).status).toBe(400);
   const first=await addCandidate('Surface-mounted court',good);
-  const unknown=await addCandidate('Unknown delivery',{estimatedStart:'',estimatedReady:''});
+  const unknown=await addCandidate('Confirmed staging with missing schedule',{estimatedStart:'',estimatedReady:'',
+    notes:'Staging slot confirmed. Utility review signed off.'});
   const goal=await makeGoal(dateGoal);
+  const delivery={...dateGoal,name:'Delivery readiness',description:'Prioritize confirmed staging and utility clearance.',
+    earliestStart:null,targetCompletion:null,allowedTypes:[]};
+  const deliveryGoal=await makeGoal(delivery);
   const structured=await makeGoal({...dateGoal,description:structuredGoalDescription});
   const ref=await reference();
   const calls:string[]=[];
+  const assessmentGoals:unknown[]=[];
   let lastExplanation:{goalReview?:unknown}|undefined;
   const realFetch=fetch;
   vi.stubGlobal('fetch',async(input:RequestInfo|URL,init?:RequestInit)=>{
@@ -151,9 +156,14 @@ it('bounds spend, reuses one authoritative assessment, and gives Explain and exp
     expect(JSON.stringify(snapshot)).not.toContain('requestDate');
     if(url.endsWith('input_tokens'))return Response.json({input_tokens:900});
     if(!assessment)lastExplanation=snapshot;
+    else assessmentGoals.push(snapshot.goal);
+    const delivering=snapshot.goal?.id===deliveryGoal.id;
+    const preferred=delivering?unknown.id:first.id;
     const value=assessment?{clarification:null,assessments:snapshot.options.map(({id}: {id:string})=>({
-      id,fit:id===first.id?'strong':'insufficient',reason:id===first.id?'The supplied site notes describe a surface-mounted installation.':'Delivery evidence is missing.',
-      evidence:['s1'],missing:id===first.id?[]:['Delivery readiness'],conflict:null,
+      id,fit:id===preferred?'strong':'insufficient',reason:delivering?
+        (id===preferred?(snapshot.goal.version===2?'The revised goal prioritizes utility review.':'The staging slot is confirmed.'):'Staging confirmation is missing.'):
+        (id===preferred?'The supplied site notes describe a surface-mounted installation.':'Delivery evidence is missing.'),
+      evidence:['s1'],missing:id===preferred?[]:['Delivery readiness'],conflict:null,
     }))}:{summary:'Low disruption favors the documented surface-mounted court. Options with unknown schedules stay outside the fit filter.',
       tradeoffs:'Review modeled costs and recorded demand.',checks:'Confirm delivery details.',referencedOptionIds:[first.id]};
     return Response.json({status:'completed',usage:{input_tokens:900,output_tokens:150},
@@ -184,6 +194,32 @@ it('bounds spend, reuses one authoritative assessment, and gives Explain and exp
     expect(await included.text()).toContain('## AI explanation');
     const other=await staff('/staff/export','POST',{...view,goal:{...view.goal,filter:'all'}});
     expect(await other.text()).not.toContain('## AI explanation');
+    const finished=await db.prepare('SELECT started FROM ai_staff_usage WHERE pending_until=0').all<{started:number}>();
+    expect(finished.results).toHaveLength(2);
+    expect(ai.staffCooldownMs).toBe(15_000);
+    await db.prepare("UPDATE ai_staff_usage SET started=started-? WHERE pending_until=0").bind(15_000).run();
+    expect(await send(second,'/staff/goals/preview','POST',{...ref,goal:deliveryGoal})).toMatchObject({evaluationKey:null});
+    const contrasted=await send<{evaluationKey:string;evaluation:import('../src/goals').GoalEvaluation}>(
+      staff,'/staff/goals/evaluate','POST',{...ref,goal:deliveryGoal});
+    expect(contrasted.evaluationKey).not.toBe(evaluated.evaluationKey);
+    expect(contrasted.evaluation.assessments).toContainEqual(expect.objectContaining({
+      id:unknown.id,fit:'strong',reason:'The staging slot is confirmed.',
+    }));
+    expect(assessmentGoals).toEqual([
+      expect.objectContaining({id:goal.id,version:1,earliestStart:dateGoal.earliestStart,
+        targetCompletion:dateGoal.targetCompletion,allowedTypes:[expect.arrayContaining(['pull-up'])]}),
+      expect.objectContaining({id:deliveryGoal.id,version:1,earliestStart:null,targetCompletion:null,allowedTypes:[]}),
+    ]);
+    expect(await send(second,'/staff/goals/preview','POST',{...ref,goal})).toMatchObject({evaluationKey:evaluated.evaluationKey});
+    await send(second,'/staff/goals/'+deliveryGoal.id,'PUT',{...delivery,description:'Prioritize documented utility review.',version:1});
+    expect((await staff('/staff/goals/preview','POST',{...ref,goal:deliveryGoal})).status).toBe(409);
+    const edited={...deliveryGoal,version:2};
+    expect(await send(staff,'/staff/goals/preview','POST',{...ref,goal:edited})).toMatchObject({evaluationKey:null});
+    const revised=await send<{evaluationKey:string;evaluation:import('../src/goals').GoalEvaluation}>(
+      second,'/staff/goals/evaluate','POST',{...ref,goal:edited});
+    expect(revised.evaluationKey).not.toBe(contrasted.evaluationKey);
+    expect(revised.evaluation.assessments).toContainEqual(expect.objectContaining({reason:'The revised goal prioritizes utility review.'}));
+    expect(assessmentGoals.at(-1)).toMatchObject({id:deliveryGoal.id,version:2,description:'Prioritize documented utility review.'});
     await db.prepare("UPDATE candidates SET notes='Changed synthetic evidence' WHERE id=?").bind(first.id).run();
     expect((await staff('/staff/goals/preview','POST',{...ref,goal})).status).toBe(409);
     const next=await reference();

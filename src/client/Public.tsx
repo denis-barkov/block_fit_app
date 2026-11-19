@@ -99,7 +99,7 @@ export default function Public({request,role,types}: {request?: (category:Catego
         <div><p className="eyebrow mb-3">Explore {mapArea.name}</p>
           <h1>Find outdoor fitness equipment.</h1>
           <p className="mt-3 max-w-2xl muted md:text-lg">See what’s nearby, check what’s been verified, and tell us what’s missing.</p></div>
-        <p className="border-l-2 border-brand pl-4 text-sm muted">Demo equipment is concentrated in {pilot.name}. Check site details before visiting.</p>
+        <p className="border-l-2 border-brand pl-4 text-sm muted">Demo equipment is placed in and around {pilot.name}. Check site details before visiting.</p>
       </div>
     </section>
     <div className="shell space-y-5 py-6">

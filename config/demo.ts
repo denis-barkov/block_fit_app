@@ -1,6 +1,6 @@
 import { pilot } from './settings.ts';
 
-export const demoVersion=2;
+export const demoVersion=3;
 export const illustrative=`Illustrative ${pilot.neighborhood} demo fixture. No field inspection.`;
 export const simulated=`Simulated verification for the ${pilot.neighborhood} demo. No field inspection.`;
 const amount=(base:number)=>({low:Math.round(base*.8),base,high:Math.round(base*1.2)});
@@ -16,6 +16,10 @@ export const demoParks=[
   ['demo-east',`${pilot.neighborhood} East demo area`,40.7180,-73.8415],
   ['demo-north',`${pilot.neighborhood} North demo area`,40.7252,-73.8502],
   ['demo-south',`${pilot.neighborhood} South demo area`,40.7140,-73.8451],
+  ['demo-v3-west-commons','West commons demo area',40.7242,-73.8710],
+  ['demo-v3-west-court','West paved court demo area',40.7265,-73.8746],
+  ['demo-v3-east-gate','East gate demo area',40.7331,-73.8298],
+  ['demo-v3-east-green','East green demo area',40.7300,-73.8345],
 ] as const;
 
 export const demoEquipment=[
@@ -34,6 +38,20 @@ export const demoEquipment=[
   ['demo-east-bench','East terrace sit-up bench','sit-up',40.71835,-73.8409,'demo-east','unusable','public',true],
   ['demo-south-bench','South green sit-up bench','sit-up',40.7144,-73.8452,'demo-south','usable','public',false],
   ['demo-walk-bench','Garden walk sit-up bench','sit-up',40.7208,-73.8422,null,'usable','unknown',false],
+  ['demo-v3-west-bollard','West commons pull-up frame','pull-up',40.7237,-73.8713,'demo-v3-west-commons','unusable','public',true],
+  ['demo-v3-west-sport','West field pull-up bars','pull-up',40.7207,-73.8724,null,'usable','public',true],
+  ['demo-v3-west-pad-bar','West paved court pull-up bars','pull-up',40.7270,-73.8752,'demo-v3-west-court','unknown','unknown',false],
+  ['demo-v3-west-rail','West boundary parallel bars','parallel',40.7249,-73.8705,'demo-v3-west-commons','usable','public',true],
+  ['demo-v3-west-rail-pair','West practice parallel bars','parallel',40.7268,-73.8748,'demo-v3-west-court','usable','restricted',true],
+  ['demo-v3-west-pad-bench','West paved court sit-up bench','sit-up',40.7261,-73.8741,'demo-v3-west-court','usable','public',false],
+  ['demo-v3-west-field-bench','West field sit-up bench','sit-up',40.7211,-73.8736,null,'usable','public',true],
+  ['demo-v3-east-court-bar','East gate pull-up bars','pull-up',40.7333,-73.8306,'demo-v3-east-gate','usable','restricted',true],
+  ['demo-v3-east-path-bar','East green pull-up station','pull-up',40.7292,-73.8351,'demo-v3-east-green','usable','public',true],
+  ['demo-v3-east-court-rail','East gate parallel bars','parallel',40.7334,-73.8290,'demo-v3-east-gate','unusable','public',true],
+  ['demo-v3-east-green-rail','East green parallel bars','parallel',40.7298,-73.8341,'demo-v3-east-green','usable','public',true],
+  ['demo-v3-east-rail-island','East path parallel bars','parallel',40.7279,-73.8332,null,'unknown','unknown',false],
+  ['demo-v3-east-court-bench','East gate sit-up bench','sit-up',40.7330,-73.8294,'demo-v3-east-gate','usable','public',true],
+  ['demo-v3-east-lawn-bench','East green sit-up bench','sit-up',40.7302,-73.8340,'demo-v3-east-green','unknown','public',false],
 ] as const;
 
 export const demoCandidates=[
@@ -53,10 +71,24 @@ export const demoCandidates=[
     profile(330_000,420_000,24_000),'Models coverage near the east garden.'],
   ['demo-sit-excluded','South corner bench option','sit-up',40.71485,-73.84575,'demo-south','excluded',
     profile(250_000,270_000,15_000),'Excluded from combinations for this scenario.'],
+  ['demo-v3-west-pad','West paved court conversion','pull-up',40.7265,-73.8746,'demo-v3-west-court','suitable-for-comparison',
+    profile(590_000,460_000,38_000),'Bolt onto existing slab. No excavation, tree work or path closures. Delivery booking pending.'],
+  ['demo-v3-west-program','West commons recreation station','pull-up',40.7242,-73.8709,'demo-v3-west-commons','suitable-for-comparison',
+    profile(1_010_000,790_000,55_000),'New footings and a phased path closure. This catchment has few eligible pull-up listings.'],
+  ['demo-v3-east-gate-candidate','East gate training plaza','pull-up',40.7331,-73.8298,'demo-v3-east-gate','suitable-for-comparison',
+    profile(880_000,720_000,45_000),'Materials allocated, inspection slot and delivery window confirmed. Trenching requires a path detour.'],
+  ['demo-v3-west-parallel','West hardcourt rail layout','parallel',40.7262,-73.8739,'demo-v3-west-court','suitable-for-comparison',
+    profile(560_000,470_000,34_000),'Surface-mount on existing pavement. Confirm final equipment clearance before ordering.'],
+  ['demo-v3-east-parallel','East gate rail extension','parallel',40.7332,-73.8303,'demo-v3-east-gate','unreviewed',
+    profile(680_000,640_000,null),'Utility clearance and annual maintenance estimate are missing.'],
+  ['demo-v3-west-sit','West commons bench station','sit-up',40.7244,-73.8714,'demo-v3-west-commons','excluded',
+    profile(310_000,390_000,24_000),'Proposed pad conflicts with the delivery and emergency-access corridor in this scenario.'],
+  ['demo-v3-east-sit','East green bench retrofit','sit-up',40.7302,-73.8347,'demo-v3-east-green','suitable-for-comparison',
+    profile(320_000,420_000,23_000),'Existing pad can be reused. Materials and unloading access identified. Installation date pending.'],
 ] as const;
 
 // Small blocks with different densities and bearings, using local offsets in metres.
-const clusters=[
+const originalClusters=[
   ['pull-up',40.71905,-73.8500,8,72,46,.4],
   ['pull-up',40.71955,-73.84745,12,90,57,.55],
   ['pull-up',40.71913,-73.84515,12,74,42,-.4],
@@ -70,17 +102,27 @@ const clusters=[
   ['sit-up',40.72494,-73.85022,5,110,52,.35],
   ['sit-up',40.71633,-73.85220,4,126,58,-.55],
 ] as const;
+const addedClusters=[
+  ['pull-up',40.72419,-73.87082,27,125,75,.65],
+  ['pull-up',40.72657,-73.87478,7,93,62,-.32],
+  ['pull-up',40.73311,-73.82965,11,105,85,.49],
+  ['pull-up',40.72941,-73.83531,4,67,53,.2],
+  ['parallel',40.72615,-73.87396,5,96,75,-.4],
+  ['parallel',40.73320,-73.83020,6,126,69,.6],
+  ['sit-up',40.72436,-73.87163,4,73,62,.3],
+  ['sit-up',40.73014,-73.83477,8,120,90,-.58],
+] as const;
 
 export function demoDemand() {
   let state=0x476f7265;
   const random=()=>{state=(Math.imul(state,1664525)+1013904223)>>>0;return state/4294967296;};
-  return clusters.flatMap(([category,lat,lng,count,width,height,angle],group)=>Array.from({length:count},(_,index)=>{
+  return [...originalClusters,...addedClusters].flatMap(([category,lat,lng,count,width,height,angle],group)=>Array.from({length:count},(_,index)=>{
     const distance=Math.sqrt(random());
     const direction=random()*Math.PI*2;
     const x=width*distance*Math.cos(direction);
     const y=height*distance*Math.sin(direction);
     return {
-      id:`demo-v2-demand-${group}-${index}`,category,
+      id:`demo-v${group<originalClusters.length?2:3}-demand-${group}-${index}`,category,
       lat:Number((lat+(x*Math.sin(angle)+y*Math.cos(angle))/111195).toFixed(6)),
       lng:Number((lng+(x*Math.cos(angle)-y*Math.sin(angle))/84300).toFixed(6)),
     };
@@ -97,7 +139,7 @@ export const demoTypeProposals=[
 
 // Fixed dates keep the illustrative planning scenario reproducible.
 export const demoGoalSchedule={earliestStart:'2027-03-01',targetCompletion:'2027-06-30'};
-export const demoProgramGoals=[
+export const previousDemoProgramGoals=[
   {id:'demo-goal-low-disruption',name:'Low disruption',
     description:'Favor supplied evidence of straightforward installation with limited disturbance. Flag unresolved ground and access concerns.',
     ...demoGoalSchedule,allowedTypes:[]},
@@ -108,6 +150,13 @@ export const demoProgramGoals=[
     description:'Favor pull-up stations with documented straightforward installation and coverage of recorded unmet requests.',
     earliestStart:null,targetCompletion:null,allowedTypes:['pull-up']},
 ] as const;
+const [disruption,delivery,program]=previousDemoProgramGoals;
+export const demoProgramGoals=[
+  {...disruption,description:'Prioritize avoiding excavation, tree removal and closures of public routes. Favor explicit evidence of using an existing pad and keeping paths open. Delivery readiness is secondary.'},
+  {...delivery,description:'Prioritize delivery by the entered target. Favor explicit confirmations of materials, staging, and inspection or utility readiness. Planned temporary detours can be acceptable.',
+    targetCompletion:'2027-05-31'},
+  {...program,description:'Prioritize reaching more currently unmet pull-up requests. Compare the recorded newly covered counts across options. Closures or more complex installation may be worthwhile for substantially greater reach.'},
+] as const;
 export const demoGoalCandidateUpdates=[
   ['demo-a','Surface-mounted install on an existing pad. The staging route is identified in this fictional scenario.',
     demoGoalSchedule.earliestStart,'2027-05-15'],
@@ -115,4 +164,10 @@ export const demoGoalCandidateUpdates=[
     '2027-02-15','2027-07-12'],
   ['demo-pull-distant','Excavation and temporary path closure would be needed in this fictional scenario.',
     '2027-04-15','2027-06-20'],
+] as const;
+export const addedDemoGoalSchedules=[
+  ['demo-v3-west-pad','2027-04-26','2027-06-09'],
+  ['demo-v3-west-program','2027-04-05','2027-06-24'],
+  ['demo-v3-east-gate-candidate','2027-03-22','2027-05-06'],
+  ['demo-v3-west-parallel','2027-04-12','2027-05-24'],
 ] as const;

@@ -2,7 +2,8 @@ import {existsSync,readFileSync,writeFileSync} from 'node:fs';
 import {randomBytes} from 'node:crypto';
 import {join} from 'node:path';
 import {createAuth} from '../src/server/auth.ts';
-import {demoCandidates,demoDemand,demoEquipment,demoGoalCandidateUpdates,demoParks,demoProgramGoals,demoTypeProposals,demoVersion,illustrative,legacyDemandIds,simulated} from '../config/demo.ts';
+import {addedDemoGoalSchedules,demoCandidates,demoDemand,demoEquipment,demoGoalCandidateUpdates,demoParks,demoProgramGoals,
+  demoTypeProposals,demoVersion,illustrative,legacyDemandIds,previousDemoProgramGoals,simulated} from '../config/demo.ts';
 import {pilot} from '../config/settings.ts';
 import {typeNameKey} from '../src/contracts.ts';
 
@@ -25,9 +26,9 @@ export async function demoPlan(db) {
   const [version,...summary]=await db.batch([
     db.prepare(versionQuery),
     ...Object.keys(records).map(table=>db.prepare(table==='synthetic_demand'?
-      'SELECT count(*) AS n FROM synthetic_demand WHERE id IN ('+legacyDemandIds.map(()=>'?').join(',')+') OR id LIKE ?' :
+      'SELECT count(*) AS n FROM synthetic_demand WHERE id IN ('+legacyDemandIds.map(()=>'?').join(',')+') OR id LIKE ? OR id LIKE ?' :
       `SELECT count(*) AS n FROM ${table} WHERE fixture=1`)
-      .bind(...(table==='synthetic_demand'?[...legacyDemandIds,'demo-v2-demand-%']:[]))),
+      .bind(...(table==='synthetic_demand'?[...legacyDemandIds,'demo-v2-demand-%','demo-v3-demand-%']:[]))),
   ]);
   return {version:version.results[0].demo_version, target:demoVersion,
     current:Object.fromEntries(Object.keys(records).map((name,index)=>[name,summary[index].results[0].n])),counts};
@@ -40,20 +41,19 @@ export async function seedDataset(db,{update=false}={}) {
   const guard='(SELECT demo_version FROM operations WHERE id=1)=?';
   const writes=Object.entries(records).flatMap(([table,rows])=>{
     const fields=Object.keys(rows[0]);
-    const updates=fields.filter(field=>field!=='id').map(field=>`${field}=excluded.${field}`).join(',');
-    const conflict=table==='synthetic_demand'?'DO NOTHING':`DO UPDATE SET ${updates} WHERE ${table}.fixture=1`;
     const tuple='('+fields.map(()=>'?').join(',')+')';
     const size=Math.floor(99/fields.length);
     return Array.from({length:Math.ceil(rows.length/size)},(_,index)=>{
       const chunk=rows.slice(index*size,(index+1)*size);
       return db.prepare(`WITH input(${fields.join(',')}) AS (VALUES ${chunk.map(()=>tuple).join(',')})
         INSERT INTO ${table}(${fields.join(',')}) SELECT * FROM input WHERE ${guard}
-        ON CONFLICT(id) ${conflict}`).bind(...chunk.flatMap(row=>Object.values(row)),current);
+        ON CONFLICT(id) DO NOTHING`).bind(...chunk.flatMap(row=>Object.values(row)),current);
     });
   });
   await db.batch([
     ...writes,
-    db.prepare(`DELETE FROM synthetic_demand WHERE id IN (${legacyDemandIds.map(()=>'?').join(',')}) AND ${guard}`).bind(...legacyDemandIds,current),
+    ...(current===1?[db.prepare(`DELETE FROM synthetic_demand WHERE id IN (${legacyDemandIds.map(()=>'?').join(',')}) AND ${guard}`)
+      .bind(...legacyDemandIds,current)]:[]),
     db.prepare('UPDATE operations SET demo_version=? WHERE id=1 AND demo_version=?').bind(demoVersion,current),
   ]);
   return demoVersion;
@@ -63,7 +63,7 @@ export async function printDemoPlan(db) {
   const plan=await demoPlan(db);
   console.log(`Demo fixture v${plan.version} → v${plan.target}`);
   for(const table of Object.keys(plan.counts)) console.log(`  ${table}: ${plan.current[table]} current → ${plan.counts[table]} planned`);
-  console.log(plan.version>=plan.target?'The current fixture is already installed.':'Fixture records only. Manual inventory, real requests and accounts are preserved.');
+  console.log(plan.version>=plan.target?'The current fixture is already installed.':'Existing inventory, real requests and accounts are preserved.');
   return plan;
 }
 
@@ -112,6 +112,7 @@ export async function seedLocalGoals(db,env) {
   const first=demoProgramGoals[0].id;
   const pristine=safe=>Object.entries(safe).map(([key])=>`${key} IS ?`).join(' AND ');
   const date=new Date().toISOString();
+  const fixtureDescription=goal=>'Illustrative demo. '+goal.description;
   await db.batch([
     ...demoGoalCandidateUpdates.map(([id,note,start,ready])=>{
       const original=records.candidates.find(candidate=>candidate.id===id);
@@ -120,10 +121,24 @@ export async function seedLocalGoals(db,env) {
         AND NOT EXISTS(SELECT 1 FROM program_goals WHERE id=?)`)
         .bind('Illustrative schedule and site notes. '+note,start,ready,...Object.values(original),first);
     }),
+    ...addedDemoGoalSchedules.map(([id,start,ready])=>{
+      const original=records.candidates.find(candidate=>candidate.id===id);
+      return db.prepare(`UPDATE candidates SET notes=?,estimated_start=?,estimated_ready=?
+        WHERE ${pristine(original)} AND estimated_start IS NULL AND estimated_ready IS NULL`)
+        .bind(original.notes+' Schedule dates are synthetic.',start,ready,...Object.values(original));
+    }),
+    ...previousDemoProgramGoals.map(previous=>{
+      const goal=demoProgramGoals.find(item=>item.id===previous.id);
+      return db.prepare(`UPDATE program_goals SET description=?,target_completion=?,updated_at=?,version=version+1
+        WHERE id=? AND version=1 AND deleted_at IS NULL AND name=? AND description=?
+        AND earliest_start IS ? AND target_completion IS ? AND allowed_types=?`)
+        .bind(fixtureDescription(goal),goal.targetCompletion,date,goal.id,previous.name,fixtureDescription(previous),
+          previous.earliestStart,previous.targetCompletion,JSON.stringify(previous.allowedTypes));
+    }),
     ...demoProgramGoals.map(goal=>db.prepare(`INSERT INTO program_goals
       (id,name,description,earliest_start,target_completion,allowed_types,created_at,updated_at)
       VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`)
-      .bind(goal.id,goal.name,'Illustrative demo. '+goal.description,goal.earliestStart,goal.targetCompletion,
+      .bind(goal.id,goal.name,fixtureDescription(goal),goal.earliestStart,goal.targetCompletion,
         JSON.stringify(goal.allowedTypes),date,date)),
   ]);
 }
