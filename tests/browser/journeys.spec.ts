@@ -231,11 +231,14 @@ test('staff can compare and download on desktop and manage inventory on mobile',
   await compareSites.click();
   const combination=page.getByRole('row',{name:/Central courtyard A.*Central courtyard B/});
   await expect(combination).toContainText('Over budget');
+  const optionCount=page.getByRole('status',{name:'Comparison option count'});
+  await expect(optionCount).toHaveText('3 options');
   const otherSite=page.getByRole('table').getByRole('button',{name:/West paved court conversion/});
   await expect(otherSite).toHaveCount(0);
   await selectedOnly.uncheck();
   await compareSites.click();
   await expect(otherSite).toBeVisible();
+  await expect(optionCount).toHaveText('8 options');
   await expect(combination).toContainText('in overlapping radii, counted once');
   await page.getByRole('table').getByRole('button',{name:/Central courtyard B/}).press('Enter');
   await expect(map.getByRole('button',{name:/Central courtyard B/})).toHaveAttribute('aria-pressed','true');
@@ -295,6 +298,12 @@ test('staff can compare and download on desktop and manage inventory on mobile',
   await page.getByRole('button',{name:'Download brief'}).click();
   expect((await download).suggestedFilename()).toBe(comparisonBriefFilename);
   await page.setViewportSize({width:390,height:844});
+  await selectedOnly.check();
+  await page.getByRole('button',{name:'Select all available sites'}).click();
+  await page.getByRole('checkbox',{name:'Central courtyard A'}).uncheck();
+  await compareSites.click();
+  await expect(optionCount).toHaveText('6 options');
+  await expect(combination).toHaveCount(0);
   await noPageOverflow(page);
   await page.getByRole('link',{name:'View public site'}).click();
   await expect(page.getByRole('link',{name:'Return to City workspace'})).toBeVisible();
@@ -560,6 +569,8 @@ test('staff saves a goal, evaluates and filters options, and clears the goal wit
   await page.getByRole('button',{name:'Sign in',exact:true}).click();
   const table=page.getByRole('table');
   await expect(table).toBeVisible();
+  const optionCount=page.getByRole('status',{name:'Comparison option count'});
+  await expect(optionCount).toHaveText('7 options');
   const context=await browser.newPage({baseURL});
   try {
     await allowFallback(context);
@@ -666,6 +677,7 @@ test('staff saves a goal, evaluates and filters options, and clears the goal wit
     await expect(lead).toContainText('The delivery goal prioritizes the confirmed inspection slot.');
     await page.getByLabel('Filter by goal fit').selectOption('strong');
     await expect(table.getByRole('row')).toHaveCount(2);
+    await expect(optionCount).toHaveText('1 of 7 options shown');
     await page.getByRole('combobox',{name:'Program goal',exact:true}).selectOption({label:'Low disruption'});
     await expect(page.getByRole('button',{name:'Evaluate goal'})).toBeEnabled();
     await expect(page.getByLabel('Filter by goal fit')).toHaveCount(0);

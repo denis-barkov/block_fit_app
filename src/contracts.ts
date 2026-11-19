@@ -77,9 +77,10 @@ export const candidateInput = namedPoint.extend({
 export const scenarioInput = z.object({
   category, radius: z.number().int().min(planning.minRadius).max(planning.maxRadius),
   budget: cents, horizon: z.number().int().min(1).max(planning.maxHorizon),
-  selected: z.array(id).max(planning.combination).refine(ids => new Set(ids).size === ids.length),
+  selected: z.array(id).max(limits.inventory).refine(ids => new Set(ids).size === ids.length),
   selectedOnly:z.boolean().optional(),
-}).strict().refine(value=>!value.selectedOnly||value.selected.length>0,'Select a candidate for a selected-sites comparison.');
+}).strict().refine(value=>!value.selectedOnly||value.selected.length>0,'Select a candidate for a selected-sites comparison.')
+  .refine(value=>value.selectedOnly||value.selected.length<=planning.combination,'Select fewer sites for a combination.');
 export type Scenario = z.infer<typeof scenarioInput>;
 export type Park = z.infer<typeof parkInput> & { id: string; fixture?: boolean };
 type TypeReference={categoryName:string;categoryActive:boolean};

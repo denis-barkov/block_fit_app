@@ -2,7 +2,7 @@ import { Download } from 'lucide-react';
 import { comparisonBriefFilename } from '../../config/app';
 import { mapArea } from '../../config/map-area';
 import { lazy,Suspense,useEffect,useState, type FormEvent } from 'react';
-import { planning } from '../../config/settings';
+import { limits, planning } from '../../config/settings';
 import type { Category, EquipmentType, Explanation, Scenario } from '../contracts';
 import { goalRows, goalView, optionId, type GoalFilter, type GoalOrder } from '../goals';
 import { feasibilityLabels,interpretation,newlyCovered,ranking,screening,type Comparison } from '../server/planning';
@@ -99,7 +99,7 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
     setFocused(id);
     setScenario(current=>({...current,selected:current.selected.includes(id)
       ?current.selected.filter(selected=>selected!==id)
-      :current.selected.length<planning.combination?[...current.selected,id]:current.selected}));
+      :current.selected.length<(current.selectedOnly?limits.inventory:planning.combination)?[...current.selected,id]:current.selected}));
   };
   const label=(id:string)=>`Site ${choices.findIndex(site=>site.id===id)+1} · ${choices.find(site=>site.id===id)?.name??id}`;
   const pins=inspected ? [
@@ -113,6 +113,8 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
   const focus=choices.find(site=>site.id===focused);
   const focusSelected=!!focus && scenario.selected.includes(focus.id);
   const missingSelection=scenario.selectedOnly&&!scenario.selected.length;
+  const selectionLimit=scenario.selectedOnly?limits.inventory:planning.combination;
+  const selectable=choices.filter(site=>site.feasibility!=='excluded');
   return <main className="shell space-y-5 py-8">
     <header><p className="eyebrow">City workspace · {mapArea.name}</p><h1>Where could investment improve access?</h1>
       <p className="mt-2 max-w-3xl muted">Compare candidate sites against recorded equipment demand, existing coverage, an upfront budget, and ongoing costs.</p></header>
@@ -160,16 +162,19 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
             Estimated start {focus.estimatedStart??'unknown'} · Estimated ready {focus.estimatedReady??'unknown'}
           </p>}
           {focus.feasibility==='excluded' ? <p>Visible for review. This site cannot join a combination.</p> :
-            <button className="button" aria-pressed={focusSelected} disabled={!focusSelected&&scenario.selected.length>=planning.combination}
-              onClick={()=>toggle(focus.id)}>{focusSelected?'Remove from combination':'Add to combination'}</button>}
+            <button className="button" aria-pressed={focusSelected} disabled={!focusSelected&&scenario.selected.length>=selectionLimit}
+              onClick={()=>toggle(focus.id)}>{scenario.selectedOnly?(focusSelected?'Remove from selection':'Add to selection'):
+                (focusSelected?'Remove from combination':'Add to combination')}</button>}
           {focus.projectUrl && <a href={focus.projectUrl} target="_blank" rel="noreferrer" className="block font-bold text-brand">Public project reference ↗</a>}
         </article>}
         <fieldset className="space-y-2">
-          <legend className="mb-1 text-sm font-bold">3. Select up to {planning.combination} sites</legend>
-          {!choices.some(site=>site.feasibility!=='excluded') && <p className="text-sm muted">No selectable sites for this equipment type. Apply the assumptions to refresh.</p>}
-          {choices.filter(site=>site.feasibility!=='excluded').map(site=><label key={site.id} className="flex items-center gap-2 text-sm">
+          <legend className="mb-1 text-sm font-bold">{scenario.selectedOnly?'3. Select candidate sites':`3. Select up to ${planning.combination} sites`}</legend>
+          {!selectable.length && <p className="text-sm muted">No selectable sites for this equipment type. Apply the assumptions to refresh.</p>}
+          {scenario.selectedOnly&&selectable.length>planning.combination&&<button type="button" className="button"
+            onClick={()=>setScenario({...scenario,selected:selectable.map(site=>site.id)})}>Select all available sites</button>}
+          {selectable.map(site=><label key={site.id} className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={scenario.selected.includes(site.id)}
-              disabled={scenario.selected.length>=planning.combination&&!scenario.selected.includes(site.id)}
+              disabled={scenario.selected.length>=selectionLimit&&!scenario.selected.includes(site.id)}
               onChange={()=>toggle(site.id)}/>
             {site.name}</label>)}
         </fieldset>
@@ -178,7 +183,8 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
             <label className="flex min-h-11 items-center gap-2 text-sm font-semibold">
               <input type="checkbox" checked={!!scenario.selectedOnly}
                 aria-describedby={missingSelection?'comparison-selection-hint':undefined}
-                onChange={event=>setScenario({...scenario,selectedOnly:event.target.checked})}/> Selected sites only
+                onChange={event=>setScenario({...scenario,selectedOnly:event.target.checked,
+                  selected:!event.target.checked&&scenario.selected.length>planning.combination?[]:scenario.selected})}/> Selected sites only
             </label>
             <button type="submit" form="comparison-assumptions" className="button primary"
               disabled={action.busy||!available||missingSelection}>Compare sites</button>
@@ -227,6 +233,11 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
       {current ? <>
         {!current.highlighted.length && <p className="text-sm muted">No option meets all highlighting criteria.</p>}
         {!current.options.length && <p>No active candidates for this category.</p>}
+        <p role="status" aria-label="Comparison option count" className="rounded-control bg-canvas px-3 py-2 text-sm font-semibold">
+          {visibleOptions.length===current.options.length?
+            `${current.options.length} ${current.options.length===1?'option':'options'}`:
+            `${visibleOptions.length} of ${current.options.length} options shown`}
+        </p>
         {!!current.options.length&&!visibleOptions.length&&<p role="status">No options match this filter. Choose All options to inspect the full comparison.</p>}
         {!!visibleOptions.length && <div className="overflow-x-auto" tabIndex={0} aria-label="Comparison results table">
           <table className="preview-table"><thead><tr>

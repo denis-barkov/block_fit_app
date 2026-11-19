@@ -111,10 +111,17 @@ export function goalView(rows:GoalRow[],filter:GoalFilter,order:GoalOrder) {
   return {counts,visible,shown:visible.length,hidden:rows.length-visible.length};
 }
 
+const comparisonEvidence = [
+  ['coverage','Recorded demand coverage'],['cost','Modeled costs and budget'],['checks','Feasibility and goal requirements'],
+] as const;
+const siteEvidenceKey=(index:number)=>`s${index+1}`;
+export function goalEvidenceKeys(sites:number) {
+  return comparisonEvidence.map<string>(([id])=>id).concat(Array.from({length:sites},(_,index)=>siteEvidenceKey(index)));
+}
 export function evidenceLabels(comparison:GoalComparison,id:string) {
   const option=comparison.options.find(option=>optionId(option.ids)===id);
   const names=new Map(comparison.sites.map(site=>[site.id,
     `${site.name} · ${site.fixture?'illustrative fixture':'staff planning assumptions'}`]));
-  return new Map([['coverage','Recorded demand coverage'],['cost','Modeled costs and budget'],['checks','Feasibility and goal requirements'],
-    ...(option?[...option.ids].sort().map((id,index)=>[`s${index+1}`,names.get(id)??'Candidate evidence'] as const):[])]);
+  return new Map<string,string>([...comparisonEvidence,
+    ...(option?[...option.ids].sort().map((id,index)=>[siteEvidenceKey(index),names.get(id)??'Candidate evidence'] as const):[])]);
 }

@@ -1,5 +1,5 @@
 import {afterAll,beforeAll,expect,it,vi} from 'vitest';
-import {ai,planning} from '../config/settings';
+import {ai,planning,staffComparisonAI} from '../config/settings';
 import type {Scenario} from '../src/contracts';
 import {cachedExplanation,explain,explanationCacheKey,explanationRequest} from '../src/server/ai';
 import {getComparison,stmt} from '../src/server/database';
@@ -55,7 +55,7 @@ function provider({tokens=500,response=success,hold,failure=false}:{tokens?:numb
       return Response.json({input_tokens:tokens});
     }
     calls.push('generation');
-    expect(JSON.parse(body)).toMatchObject({max_output_tokens:ai.outputTokens,store:false,service_tier:'default',model:'gpt-6-luna',reasoning:{effort:'low'}});
+    expect(JSON.parse(body)).toMatchObject({max_output_tokens:staffComparisonAI.explanation.outputTokens,store:false,service_tier:'default',model:'gpt-6-luna',reasoning:{effort:'low'}});
     await hold?.();
     if(failure)throw new Error('Test timeout');
     return Response.json(response);
@@ -71,8 +71,10 @@ it('checks tokens and caches a bounded aggregate without generating twice',async
   expect(fake.calls).toEqual(['count','generation']);
   const newRevision=await revise();
   expect(await cachedExplanation(env,newRevision)).toBeUndefined();
-  const oversized=provider({tokens:ai.inputTokens+1});
-  await expect(explain(env,newRevision,oversized.fetch)).rejects.toMatchObject({status:400});
+  const oversized=provider({tokens:staffComparisonAI.explanation.inputTokens+1});
+  await expect(explain(env,newRevision,oversized.fetch)).rejects.toMatchObject({
+    status:400,message:expect.stringContaining('Turn on Selected sites only'),
+  });
   expect(oversized.calls).toEqual(['count']);
   await expect(explain({...env,AI_ENABLED:'false'},newRevision,fake.fetch)).rejects.toMatchObject({status:503});
 });
@@ -91,7 +93,7 @@ it('blocks duplicate work and allows distinct requests from the same account aft
   };
   const scope={staffScope:'same-test-account'};
   const pending=explain(env,comparison,heldProvider,undefined,scope);
-  const check=expect(pending).rejects.toMatchObject({status:502});
+  const check=expect(pending).rejects.toMatchObject({status:409});
   await start.promise;
   const other=provider();
   try {
@@ -143,7 +145,7 @@ it('rejects invalid snapshot before a call, validates output IDs and bounds, and
   const fake=provider();
   await expect(explain(env,{...comparison,unmet:5},fake.fetch)).rejects.toMatchObject({status:503});
   expect(fake.calls).toEqual([]);
-  const overrun=provider({response:{...success,usage:{...success.usage,output_tokens:ai.outputTokens+1}}});
+  const overrun=provider({response:{...success,usage:{...success.usage,output_tokens:staffComparisonAI.explanation.outputTokens+1}}});
   await expect(explain(env,comparison,overrun.fetch)).rejects.toThrow('exceeded the configured token bounds');
   expect(await cachedExplanation(env,comparison)).toBeUndefined();
   for(const invalid of [{...output,referencedOptionIds:['unlisted']},{...output,highlightedOptionIds:['unlisted']},

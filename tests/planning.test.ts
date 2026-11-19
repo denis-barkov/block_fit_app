@@ -71,17 +71,17 @@ describe('AI comparison snapshot',()=>{
     const labelB={...b,name:'Second courtyard',fixture:true};
     const result=snapshot([labelA,labelB],['A','B']);
     expect(result).toMatchObject({
-      scenario:{area:'Brooklyn and Queens',horizonYears:10,radiusMetres:200,upfrontBudget:'$20,000',
+      scenario:{area:'Brooklyn and Queens',horizonYears:10,radiusMetres:200,
         upfrontBudgetMinorUnits:2_000_000,demandData:'synthetic',inventoryData:'synthetic',candidateData:'synthetic'},
       demand:{eligibleUniqueActiveRequesters:4,alreadyServed:1,baselineUnmet:3},
       costs:{currency:'USD',internalUnit:'cents',rangeOrder:['low','base','high']},
       ranking:{highlightedOptionIds:['A'],tied:false},
     });
     const option=(id:string)=>result.options.find(option=>option.id===id);
-    expect(option('A')).toMatchObject({name:'First courtyard',newlyCovered:2,upfront:['$12,000','$12,000','$12,000'],
-      lifecycle:['$19,000','$19,000','$19,000'],baseLifecyclePerNewRequester:'$9,500',highlightEligible:true});
-    expect(option('B')).toMatchObject({newlyCovered:2,baseLifecyclePerNewRequester:'$11,500'});
-    expect(option('A,B')).toMatchObject({type:'combination',siteIds:['A','B'],newlyCovered:3,overlap:1,
+    expect(option('A')).toMatchObject({name:'First courtyard',newlyCovered:2,upfront:[1_200_000,1_200_000,1_200_000],
+      lifecycle:[1_900_000,1_900_000,1_900_000],baseLifecyclePerNewRequester:950_000,highlightEligible:true});
+    expect(option('B')).toMatchObject({newlyCovered:2,baseLifecyclePerNewRequester:1_150_000});
+    expect(option('A,B')).toMatchObject({newlyCovered:3,overlap:1,
       fitsUpfrontBudget:[false,false,false],highlightEligible:false});
     expect(snapshot([labelA,labelB],['B','A'])).toEqual(result);
     expect(JSON.stringify(result)).not.toMatch(/confidential fixture|a-only|b-only|"lat"|"lng"/);
@@ -95,10 +95,9 @@ describe('AI comparison snapshot',()=>{
     const result=snapshot([a,identical,zero,unknown,lowOnly],['A','T']);
     expect(result.ranking).toMatchObject({highlightedOptionIds:['A','T'],tied:true});
     const option=(id:string)=>result.options.find(option=>option.id===id);
-    expect(option('A,T')).toMatchObject({newlyCovered:2,overlap:2,upfront:['$24,000','$24,000','$24,000']});
-    expect(option('Z')).toMatchObject({newlyCovered:0,sufficientCostData:true,perRequesterUnavailable:'no additional coverage'});
-    expect(option('U')).toMatchObject({sufficientCostData:false,lifecycle:[null,null,null],missing:['maintenance'],
-      perRequesterUnavailable:'incomplete lifecycle cost'});
+    expect(option('A,T')).toMatchObject({newlyCovered:2,overlap:2,upfront:[2_400_000,2_400_000,2_400_000]});
+    expect(option('Z')).toMatchObject({newlyCovered:0,baseLifecyclePerNewRequester:null});
+    expect(option('U')).toMatchObject({lifecycle:[null,null,null],missing:['maintenance'],baseLifecyclePerNewRequester:null});
     expect(option('L')).toMatchObject({fitsUpfrontBudget:[true,false,false],highlightExclusions:['base upfront cost exceeds budget']});
     expect(snapshot([zero,unknown,lowOnly]).ranking).toMatchObject({highlightedOptionIds:[],tied:false});
   });

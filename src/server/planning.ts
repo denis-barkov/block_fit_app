@@ -1,6 +1,7 @@
 import { metres } from '../geo';
 export { metres } from '../geo';
 import { appIdentity } from '../../config/app';
+import { planning } from '../../config/settings';
 import { costKeys, upfrontKeys, type Candidate, type Coordinate, type Costs, type Scenario } from '../contracts';
 
 export type DemandOrigin = Coordinate & { id: string; synthetic: boolean };
@@ -59,7 +60,7 @@ export function compare(scenario: Scenario, demand: DemandOrigin[], existing: Co
   if (selected.some(site => !site || site.feasibility === 'excluded')) return null;
   const scoped=scenario.selectedOnly?candidates.filter(site=>scenario.selected.includes(site.id)):candidates;
   const options = [...scoped.map(site => calculateOption([site])),
-    ...(selected.length > 1 ? [calculateOption(selected as Candidate[])] : [])];
+    ...(selected.length > 1 && selected.length<=planning.combination ? [calculateOption(selected as Candidate[])] : [])];
   const qualified = options.filter(option => !highlightExclusions(option).length);
   // Compare integer products to preserve ties without rounding cost per requester.
   type Option = typeof options[number];

@@ -1,4 +1,4 @@
-import { ai } from '../../config/settings';
+import { ai, staffComparisonAI } from '../../config/settings';
 import { travel } from '../../config/travel';
 import type { GoalRef } from '../goals';
 import { comparisonRevisionSQL, stmt } from './database';
@@ -6,12 +6,17 @@ import { problem, type Env } from './web';
 
 type Parsed<T> = {explanation:T;providerOutput:unknown;reason?:never} | {reason:string;explanation?:never;providerOutput?:never};
 export type GenerationContext={testWorkspace?:boolean;goal?:GoalRef;staffScope?:string;feature?:'goal'};
+export type AIRequest<T> = {
+  payload:object; generation:{max_output_tokens:number}; parse:(text:string)=>Parsed<T>;
+  size?:{options:number;limits:{inputBytes:number;inputTokens:number}};
+};
 type Job<T> = {
-  payload:object; generation:{max_output_tokens:number}; key:string; revision:number; cacheMs:number;
-  parse:(text:string)=>Parsed<T>; scope?:string; context?:GenerationContext;
+  requests:AIRequest<T>[]; key:string; revision:number; cacheMs:number; parse:(text:string)=>Parsed<T>;
+  merge?:(values:T[])=>T; scope?:string; context?:GenerationContext;
 };
 type ProviderResponse = {
   status?:string;usage?:{input_tokens:number;output_tokens:number};output?:{content?:{type:string;text?:string}[]}[];
+  incomplete_details?:{reason?:string};
 };
 const currentData=(revision:number,context?:GenerationContext)=>{
   const goal=context?.goal;
@@ -38,8 +43,28 @@ export function modelParameters(env:Env) {
   return {model:env.OPENAI_MODEL,reasoning:{effort:env.OPENAI_REASONING_EFFORT}};
 }
 
-export function fitsInput(payload:object) {
-  return new TextEncoder().encode(JSON.stringify(payload)).length<=ai.inputBytes;
+const inputBytes=(payload:object)=>new TextEncoder().encode(JSON.stringify(payload)).length;
+export function comparisonSizeMessage(options:number,measured?:number,limit?:number) {
+  const estimate=measured&&limit?Math.floor(options*limit*staffComparisonAI.sizeHeadroom/measured):0;
+  const suggestion=estimate>0&&estimate<options?`Aim for about ${estimate} options or fewer. `:'';
+  return `This comparison is too large for AI. ${suggestion}Turn on Selected sites only, choose fewer sites, then compare again.`;
+}
+export function inputSizeError(request:AIRequest<unknown>) {
+  const bytes=inputBytes(request.payload);
+  const limit=request.size?.limits.inputBytes??ai.inputBytes;
+  if(bytes>limit)return request.size?comparisonSizeMessage(request.size.options,bytes,limit):'This search is too large to explain.';
+}
+async function inGroups<T,R>(items:T[],run:(item:T)=>Promise<R>) {
+  const results:R[]=[];
+  const size=staffComparisonAI.goal.parallelBatches;
+  for(let start=0;start<items.length;start+=size) {
+    const settled=await Promise.allSettled(items.slice(start,start+size).map(run));
+    for(const result of settled) {
+      if(result.status==='rejected')throw result.reason;
+      results.push(result.value);
+    }
+  }
+  return results;
 }
 
 async function checkCooldown(db:D1Database,role:'resident'|'staff',scope:string) {
@@ -53,12 +78,12 @@ export async function generate<T>(env:Env,job:Job<T>,provider:typeof fetch=fetch
   if(env.AI_ENABLED!=='true'||!env.OPENAI_API_KEY) {
     problem(503,job.scope?'AI suggestions are unavailable. You can still compare locations and open Maps.':'AI is unavailable. Comparisons and exports still work.');
   }
-  const {payload,generation,key,scope,revision,parse,context}=job;
+  const {requests,key,scope,revision,parse,context}=job;
   const staffScope=context?.staffScope;
   const goalJob=context?.feature==='goal';
   const db=env.DB;
-  if(!fitsInput(payload)) problem(400,goalJob?'This goal assessment exceeds the input limit. Narrow the comparison.':
-    scope?'This search is too large to explain.':'This comparison is too large to explain.');
+  const oversized=requests.map(inputSizeError).find(Boolean);
+  if(oversized)problem(400,oversized);
   const prior=await stmt(db,'SELECT result FROM ai_jobs WHERE key=? AND expires>?',key,Date.now()).first<{result:string|null}>();
   if(prior) {
     if(!prior.result) problem(409,'An explanation is already being prepared. Try again shortly.');
@@ -74,9 +99,11 @@ export async function generate<T>(env:Env,job:Job<T>,provider:typeof fetch=fetch
   if(context?.goal)await verifyAIContext(db,revision,context);
   const call=(endpoint:string,data:object)=>provider(`https://api.openai.com/v1/responses${endpoint}`,{
     method:'POST',headers:{Authorization:`Bearer ${env.OPENAI_API_KEY}`,'Content-Type':'application/json'},
-    body:JSON.stringify(data),signal:AbortSignal.timeout(25_000),
+    body:JSON.stringify(data),signal:AbortSignal.timeout(ai.providerTimeoutMs),
   });
-  const now=Date.now(), day=new Date(now).toISOString().slice(0,10), deadline=now+ai.reservationMs;
+  const now=Date.now(), day=new Date(now).toISOString().slice(0,10);
+  const waves=Math.ceil(requests.length/staffComparisonAI.goal.parallelBatches);
+  const deadline=now+Math.max(ai.reservationMs,(waves+1)*2*ai.providerTimeoutMs);
   const current=currentData(revision,context);
   const results=await db.batch([
     stmt(db,'DELETE FROM ai_jobs WHERE key=? AND expires<=?',key,now),
@@ -102,31 +129,38 @@ export async function generate<T>(env:Env,job:Job<T>,provider:typeof fetch=fetch
     await verifyAIContext(db,revision,context);
     problem(409,'An AI request was just started. Try again shortly.');
   }
-  let value:ProviderResponse;
+  let parsed:Parsed<T>;
   try {
-    const countResponse=await call('/input_tokens',payload).catch(()=>problem(502,'The explanation provider is unavailable.'));
-    if(!countResponse.ok) problem(502,'The explanation provider could not count input tokens.');
-    const counted=await countResponse.json().catch(()=>problem(502,'The provider returned an invalid token count.'));
-    const count=Number((counted as {input_tokens?:number}|null)?.input_tokens);
-    if(!Number.isSafeInteger(count)||count<=0||count>ai.inputTokens) problem(400,goalJob?
-      'This goal assessment exceeds the input limit. Narrow the comparison.':'This request exceeds the explanation input limit.');
-    const response=await call('',{...payload,...generation}).catch(()=>problem(502,'The provider did not respond.'));
-    if(!response.ok) problem(502,'The provider could not generate an explanation.');
-    value=await response.json().catch(()=>problem(502,'The provider returned an invalid explanation.')) as ProviderResponse;
-    if(!value||typeof value!=='object') problem(502,'The provider returned an invalid explanation.');
+    await inGroups(requests,async request=>{
+      const response=await call('/input_tokens',request.payload).catch(()=>problem(502,'The explanation provider is unavailable.'));
+      await checkProviderInput(response,request);
+      if(!response.ok)problem(502,'The explanation provider could not count input tokens.');
+      const data=await response.json().catch(()=>problem(502,'The provider returned an invalid token count.'));
+      const count=(data as {input_tokens?:number}|null)?.input_tokens;
+      if(typeof count!=='number'||!Number.isSafeInteger(count)||count<=0)problem(502,'The provider returned an invalid token count.');
+      const limit=request.size?.limits.inputTokens??ai.inputTokens;
+      if(count>limit)problem(400,request.size?comparisonSizeMessage(request.size.options,count,limit):'This request exceeds the explanation input limit.');
+    });
+    await verifyAIContext(db,revision,context);
+    const results=await inGroups(requests,async request=>{
+      const response=await call('',{...request.payload,...request.generation}).catch(()=>problem(502,'The provider did not respond.'));
+      await checkProviderInput(response,request);
+      if(!response.ok)problem(502,'The provider could not generate an explanation.');
+      const value=await response.json().catch(()=>problem(502,'The provider returned an invalid explanation.')) as ProviderResponse;
+      if(!value||typeof value!=='object')problem(502,'The provider returned an invalid explanation.');
+      if(request.size&&value.incomplete_details?.reason==='max_output_tokens')problem(400,comparisonSizeMessage(request.size.options));
+      return parseProviderResult(value,request);
+    });
+    const rejected=results.find(result=>result.reason!==undefined);
+    if(rejected)parsed=rejected;
+    else if(job.merge) {
+      const combined=job.merge(results.map(result=>result.explanation!));
+      parsed=parse(JSON.stringify(combined));
+    } else parsed=results[0];
   } catch(error) {
     await stmt(db,'DELETE FROM ai_jobs WHERE key=? AND started=? AND result IS NULL',key,now).run();
     throw error;
   }
-  const {usage}=value;
-  const knownUsage=usage && Number.isSafeInteger(usage.input_tokens) && Number.isSafeInteger(usage.output_tokens)
-    && usage.input_tokens>=0 && usage.output_tokens>=0;
-  const exceededBounds=knownUsage&&(usage.input_tokens>ai.inputTokens||usage.output_tokens>generation.max_output_tokens);
-  const parts=(Array.isArray(value.output)?value.output:[]).flatMap(item=>Array.isArray(item?.content)?item.content:[]);
-  const content=parts.find(item=>item?.type==='output_text')?.text;
-  const parsed:Parsed<T>=exceededBounds?{reason:'token_bounds'}:value.status!=='completed'?{reason:'response_incomplete'}
-    :parts.some(item=>item?.type==='refusal')?{reason:'provider_refusal'}
-    :typeof content!=='string'?{reason:'missing_output'}:parse(content);
   const accepted=parsed.explanation!==undefined;
   const [confirmed]=await db.batch<{value:number}>([
     stmt(db,`SELECT 1 AS value WHERE ${current.where}`,...current.args),
@@ -150,4 +184,23 @@ export async function generate<T>(env:Env,job:Job<T>,provider:typeof fetch=fetch
     problem(502,message);
   }
   return {value:parsed.explanation,cached:false};
+}
+
+async function checkProviderInput(response:Response,request:AIRequest<unknown>) {
+  if(!request.size||![400,413].includes(response.status))return;
+  const body=await response.json().catch(()=>null) as {error?:{code?:string}}|null;
+  if(response.status===413||['context_length_exceeded','input_too_large'].includes(body?.error?.code??'')) {
+    problem(400,comparisonSizeMessage(request.size.options));
+  }
+}
+
+function parseProviderResult<T>(value:ProviderResponse,request:AIRequest<T>):Parsed<T> {
+  const {usage}=value;
+  const limit=request.size?.limits.inputTokens??ai.inputTokens;
+  if(usage&&(usage.input_tokens>limit||usage.output_tokens>request.generation.max_output_tokens))return {reason:'token_bounds'};
+  if(value.status!=='completed')return {reason:'response_incomplete'};
+  const parts=(Array.isArray(value.output)?value.output:[]).flatMap(item=>Array.isArray(item?.content)?item.content:[]);
+  if(parts.some(item=>item?.type==='refusal'))return {reason:'provider_refusal'};
+  const content=parts.find(item=>item?.type==='output_text')?.text;
+  return typeof content==='string'?request.parse(content):{reason:'missing_output'};
 }

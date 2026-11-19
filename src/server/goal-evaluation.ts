@@ -1,10 +1,10 @@
 import { z } from 'zod';
 import { goalLimits, structuredGoalDescription } from '../../config/goals';
-import { ai } from '../../config/settings';
+import { ai, staffComparisonAI } from '../../config/settings';
 import { costKeys } from '../contracts';
-import { bucketLabels, evidenceLabels, fitLabels, fits, goalFilterLabels, goalReasonLabels, goalRows, goalView, optionId, statusLabels, type Goal,
+import { bucketLabels, evidenceLabels, fitLabels, fits, goalEvidenceKeys, goalFilterLabels, goalReasonLabels, goalRows, goalView, optionId, statusLabels, type Goal,
   type GoalEvaluation, type GoalFilter, type GoalOrder, type GoalRef } from '../goals';
-import { generate, fitsInput, hash, modelParameters, verifyAIContext, type GenerationContext } from './ai-gateway';
+import { generate, inputSizeError, hash, modelParameters, verifyAIContext, type GenerationContext } from './ai-gateway';
 import { stmt } from './database';
 import { clean, type Comparison } from './planning';
 import { currentGoal } from './program-goals';
@@ -18,19 +18,30 @@ const assessmentSchema=z.object({
 const responseSchema=z.object({clarification:z.string().nullable(),assessments:z.array(assessmentSchema)}).strict();
 function outputSchema(expected:Map<string,Set<string>>) {
   const text=z.string().min(1).max(goalLimits.reasonChars);
-  const citations=[...new Set([...expected.values()].flatMap(keys=>[...keys]))];
-  const {$schema,...schema}=z.toJSONSchema(responseSchema.extend({
-    clarification:text.nullable(),
-    assessments:z.array(assessmentSchema.extend({
-      id:z.enum([...expected.keys()]),evidence:z.array(z.enum(citations)).max(goalLimits.evidence),
-      reason:text,conflict:text.nullable(),
+  const groups=new Map<string,{ids:string[];citations:string[]}>();
+  for(const [id,allowed] of expected) {
+    const citations=[...allowed];
+    const key=citations.join(',');
+    const group=groups.get(key)??{ids:[],citations};
+    group.ids.push(id);groups.set(key,group);
+  }
+  const variants=[...groups.values()].flatMap(({ids,citations})=>{
+    const evidence=z.array(z.enum(citations)).max(goalLimits.evidence);
+    const row=assessmentSchema.extend({
+      id:z.enum(ids), reason:text,conflict:text.nullable(),
       missing:z.array(z.string().min(1).max(goalLimits.missingChars)).max(goalLimits.missing),
-    })).max(expected.size),
+    });
+    return [
+      row.extend({fit:z.enum(fits.filter(fit=>fit!=='insufficient')),evidence:evidence.min(1)}),
+      row.extend({fit:z.enum(['insufficient']),evidence}),
+    ];
+  });
+  const {$schema,...schema}=z.toJSONSchema(responseSchema.extend({
+    clarification:text.nullable(),assessments:z.array(z.union(variants)).max(expected.size),
   }));
   return schema;
 }
-const generation={store:false,service_tier:'default',max_output_tokens:ai.outputTokens} as const;
-const rubricVersion=1;
+const rubricVersion=2;
 
 function snapshotForGoal(comparison:Comparison,goal:Goal) {
   const included=new Set(comparison.options.flatMap(option=>option.ids));
@@ -101,14 +112,28 @@ export function parseGoalEvaluation(content:string,expected:Map<string,Set<strin
 
 export async function prepareGoalEvaluation(env:Env,result:Comparison,goal:Goal) {
   const snapshot=snapshotForGoal(result,goal);
-  const expected=new Map(snapshot.options.map(option=>[option.id,new Set(evidenceLabels(result,option.id).keys())]));
+  const expected=new Map(snapshot.options.map(option=>[option.id,new Set(goalEvidenceKeys(option.sites.length))]));
   const instructions=loadPrompt('evaluate-program-goal',{output_word_limit:goalLimits.reasonWords});
-  const payload={...modelParameters(env),input:[{role:'developer',content:instructions},
-    {role:'user',content:JSON.stringify(snapshot)}],
-    text:{format:{type:'json_schema',name:'program_goal_assessment',strict:true,schema:outputSchema(expected)}}};
+  const model=modelParameters(env);
+  const limits=staffComparisonAI.goal;
+  const requests=[];
+  const overall={options:snapshot.options.length,maxNewlyCovered:Math.max(0,...snapshot.options.map(option=>option.coverage[0]))};
+  for(let start=0;start<snapshot.options.length;start+=limits.batchOptions) {
+    const options=snapshot.options.slice(start,start+limits.batchOptions);
+    const used=[...new Set(options.flatMap(option=>option.sites))].sort((a,b)=>a-b);
+    const localIndex=new Map(used.map((index,local)=>[index,local]));
+    const batch={...snapshot,overall,sites:used.map(index=>snapshot.sites[index]),
+      options:options.map(option=>({...option,sites:option.sites.map(index=>localIndex.get(index)),
+        requirementDetails:option.requirementDetails.map(([code,index])=>[code,typeof index==='number'?localIndex.get(index):null])}))};
+    const allowed=new Map(options.map(option=>[option.id,expected.get(option.id)!]));
+    const payload={...model,input:[{role:'developer',content:instructions},{role:'user',content:JSON.stringify(batch)}],
+      text:{format:{type:'json_schema',name:'program_goal_assessment',strict:true,schema:outputSchema(allowed)}}};
+    const generation={store:false,service_tier:'default',max_output_tokens:limits.outputOverhead+options.length*limits.outputPerOption} as const;
+    requests.push({payload,generation,size:{options:options.length,limits},parse:(text:string)=>parseGoalEvaluation(text,allowed)});
+  }
   const key=await hash(JSON.stringify([rubricVersion,goal.id,goal.version,result.revision,result.testWorkspace??false,
-    [...result.scenario.selected].sort(),payload,generation,ai.inputTokens]));
-  return {payload,generation,key,parse:(text:string)=>parseGoalEvaluation(text,expected)};
+    [...result.scenario.selected].sort(),requests]));
+  return {requests,key,parse:(text:string)=>parseGoalEvaluation(text,expected)};
 }
 export type GoalReview={
   goal:Goal; evaluation:GoalEvaluation|null; evaluationKey:string|null; blocked:string|null;
@@ -117,29 +142,38 @@ export function goalEvaluationBlock(result:Comparison,goal:Goal) {
   if(goal.allowedTypes.length&&!goal.allowedTypes.includes(result.scenario.category))return 'The current comparison equipment type is outside this goal.';
   if(goal.description===structuredGoalDescription)return 'This goal uses equipment and date requirements only. No AI evaluation is needed.';
   if(!result.options.length)return 'There are no options in this comparison to evaluate.';
-  if(result.options.length>goalLimits.options)return `Narrow the comparison to ${goalLimits.options} options or fewer before evaluating.`;
   return null;
 }
-export async function goalReview(env:Env,result:Comparison,ref:GoalRef):Promise<GoalReview> {
+async function reviewGoalRequest(env:Env,result:Comparison,ref:GoalRef) {
   const goal=await currentGoal(env.DB,ref);
   await verifyAIContext(env.DB,result.revision,{goal:ref,testWorkspace:result.testWorkspace});
-  const base={goal,evaluation:null,evaluationKey:null};
+  const base:GoalReview={goal,evaluation:null,evaluationKey:null,blocked:null};
   const blocked=goalEvaluationBlock(result,goal);
-  if(blocked)return {...base,blocked};
-  if(!env.OPENAI_MODEL||!env.OPENAI_REASONING_EFFORT)return {...base,blocked:'AI is unavailable. Goal requirements are still applied.'};
+  if(blocked)return {review:{...base,blocked}};
+  if(!env.OPENAI_MODEL||!env.OPENAI_REASONING_EFFORT) {
+    return {review:{...base,blocked:'AI is unavailable. Goal requirements are still applied.'}};
+  }
   const request=await prepareGoalEvaluation(env,result,goal);
-  if(!fitsInput(request.payload))return {...base,blocked:'This goal assessment exceeds the input limit. Narrow the comparison.'};
+  const oversized=request.requests.map(inputSizeError).find(Boolean);
+  if(oversized)return {review:{...base,blocked:oversized}};
   const record=await stmt(env.DB,'SELECT result FROM ai_jobs WHERE key=? AND expires>? AND result IS NOT NULL',
     request.key,Date.now()).first<string>('result');
   const evaluation=record?request.parse(record).explanation:null;
-  return {goal,blocked:null,evaluation:evaluation??null,evaluationKey:evaluation?request.key:null};
+  return {review:{...base,evaluation:evaluation??null,evaluationKey:evaluation?request.key:null},request};
+}
+export async function goalReview(env:Env,result:Comparison,ref:GoalRef):Promise<GoalReview> {
+  return (await reviewGoalRequest(env,result,ref)).review;
 }
 export async function evaluateGoal(env:Env,result:Comparison,ref:GoalRef,staffScope:string,requestId?:string):Promise<GoalReview> {
-  const review=await goalReview(env,result,ref);
-  if(review.blocked||review.evaluation)return review;
-  const request=await prepareGoalEvaluation(env,result,review.goal);
+  const {review,request}=await reviewGoalRequest(env,result,ref);
+  if(!request||review.evaluation)return review;
   const context:GenerationContext={goal:ref,staffScope,testWorkspace:result.testWorkspace,feature:'goal'};
-  const evaluation=await generate(env,{...request,revision:result.revision,context,cacheMs:ai.cacheDays*86_400_000},fetch,requestId);
+  const evaluation=await generate<GoalEvaluation>(env,{...request,revision:result.revision,context,cacheMs:ai.cacheDays*86_400_000,
+    merge:values=>{
+      const clarification=values.find(value=>value.clarification)?.clarification??null;
+      return {clarification,assessments:clarification?[]:values.flatMap(value=>value.assessments)};
+    },
+  },fetch,requestId);
   return {...review,evaluation:evaluation.value,evaluationKey:request.key};
 }
 
@@ -147,15 +181,18 @@ export function goalExplanationContext(result:Comparison,review:GoalReview,filte
   const {goal,evaluation}=review;
   const rows=goalRows(result,goal,evaluation);
   const view=goalView(rows,filter,order);
+  const positions=new Map(view.visible.map((row,index)=>[row.id,index+1]));
+  const detailed=new Set(view.visible.slice(0,staffComparisonAI.explanation.detailOptions).map(row=>row.id));
   return {
     goal:{id:goal.id,version:goal.version,name:goal.name,description:goal.description,earliestStart:goal.earliestStart,targetCompletion:goal.targetCompletion,
       allowedTypes:goal.types.map(type=>type.name+(type.active?'':' (unavailable)'))},
     clarification:evaluation?.clarification??null, qualitativeFit:evaluation?'assessed':review.blocked??'not evaluated',
     filter:goalFilterLabels[filter],order:order==='fit'?'Goal fit':'Ordinary comparison',counts:view.counts,shown:view.shown,hidden:view.hidden,
-    baselineOrder:rows.map(row=>row.id),visibleOrder:view.visible.map(row=>row.id),
-    options:rows.map(row=>({id:row.id,requirements:row.requirement,eligibility:row.eligibility,
+    options:rows.map((row,index)=>({id:row.id,requirements:row.requirement,eligibility:row.eligibility,
+      baselinePosition:index+1,visiblePosition:positions.get(row.id)??null,fit:row.fit,
       checks:[...new Set([...row.requirements,...row.eligibilityIssues].map(issue=>issue.code))],
-      fit:row.fit,reason:row.assessment?.reason,missing:row.assessment?.missing,conflict:row.assessment?.conflict})),
+      ...(detailed.has(row.id)&&row.assessment?{reason:row.assessment.reason,missing:row.assessment.missing,conflict:row.assessment.conflict}:{}),
+    })),
   };
 }
 

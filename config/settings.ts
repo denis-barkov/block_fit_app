@@ -18,5 +18,11 @@ export const limits = {
 export const ai = {
   inputTokens: 2000, outputTokens: 1000,
   cacheDays: 7, cacheEntries: 100, outputWords: 220, inputBytes: 12_000,
-  cooldownMs:{staff:5_000,resident:5_000}, reservationMs:120_000,
+  cooldownMs:{staff:5_000,resident:5_000}, reservationMs:120_000, providerTimeoutMs:25_000,
+};
+// Keep staff payloads well below Luna's context and reserve room for structured replies.
+export const staffComparisonAI = {
+  explanation:{inputTokens:40_000,inputBytes:160_000,outputTokens:1_800,sectionChars:600,detailOptions:8},
+  goal:{inputTokens:16_000,inputBytes:64_000,batchOptions:16,outputPerOption:200,outputOverhead:500,parallelBatches:4},
+  sizeHeadroom:.85,
 };

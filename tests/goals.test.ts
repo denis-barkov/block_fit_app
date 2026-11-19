@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { goalLimits, structuredGoalDescription } from '../config/goals';
-import { ai, pilot, planning } from '../config/settings';
+import { ai, pilot, planning, staffComparisonAI } from '../config/settings';
 import type { Candidate, Scenario } from '../src/contracts';
 import { goalRows, goalView, type Goal, type GoalInput } from '../src/goals';
 import { createAuth } from '../src/server/auth';
@@ -144,7 +144,7 @@ it('bounds spend, reuses one authoritative assessment, and gives Explain and exp
   const ref=await reference();
   const calls:string[]=[];
   const assessmentGoals:unknown[]=[];
-  let lastExplanation:{goalReview?:unknown}|undefined;
+  let lastExplanation:{goalReview?:unknown;options?:unknown[]}|undefined;
   const realFetch=fetch;
   vi.stubGlobal('fetch',async(input:RequestInfo|URL,init?:RequestInit)=>{
     const url=String(input);
@@ -158,9 +158,10 @@ it('bounds spend, reuses one authoritative assessment, and gives Explain and exp
     expect(JSON.stringify(snapshot)).not.toContain('requestDate');
     if(assessment) {
       const schema=payload.text.format.schema.properties.assessments;
-      expect(schema.items.properties.id.enum).toEqual(snapshot.options.map(({id}:{id:string})=>id));
-      expect(schema.items.properties.evidence.items.enum).toContain('s1');
-      expect(schema.items.properties.missing).toMatchObject({maxItems:goalLimits.missing,items:{maxLength:goalLimits.missingChars}});
+      const strong=schema.items.anyOf.find((row:{properties:{fit:{enum?:string[]}}})=>row.properties.fit.enum?.includes('strong')).properties;
+      expect(strong.id.enum).toEqual(snapshot.options.map(({id}:{id:string})=>id));
+      expect(strong.evidence).toMatchObject({minItems:1,items:{enum:expect.arrayContaining(['s1'])}});
+      expect(strong.missing).toMatchObject({maxItems:goalLimits.missing,items:{maxLength:goalLimits.missingChars}});
     }
     if(url.endsWith('input_tokens'))return Response.json({input_tokens:900});
     if(!assessment)lastExplanation=snapshot;
@@ -194,9 +195,12 @@ it('bounds spend, reuses one authoritative assessment, and gives Explain and exp
     expect((await staff('/staff/explain','POST',view)).status).toBe(429);
     expect(calls).toHaveLength(2);
     await send(second,'/staff/explain','POST',view);
-    expect(lastExplanation?.goalReview).toMatchObject({filter:'Strong fit only',visibleOrder:[first.id],
-      counts:{match:1,information:1},options:expect.arrayContaining([{id:unknown.id,requirements:'unknown',eligibility:'meets',
-        checks:['start','ready'],fit:'insufficient',reason:'Delivery evidence is missing.',missing:['Delivery readiness'],conflict:null}])});
+    expect(lastExplanation?.goalReview).toMatchObject({filter:'Strong fit only',counts:{match:1,information:1}});
+    expect(lastExplanation?.options).toEqual(expect.arrayContaining([
+      expect.objectContaining({id:first.id,goal:expect.objectContaining({visiblePosition:1,fit:'strong',reason:expect.any(String)})}),
+      expect.objectContaining({id:unknown.id,goal:{requirements:'unknown',eligibility:'meets',
+        baselinePosition:1,visiblePosition:null,fit:'insufficient',checks:['start','ready']}}),
+    ]));
     expect(calls).toEqual(['evaluate:count','evaluate:generate','explain:count','explain:generate']);
     const included=await staff('/staff/export','POST',view);
     expect(await included.text()).toContain('## AI explanation');
@@ -235,19 +239,58 @@ it('bounds spend, reuses one authoritative assessment, and gives Explain and exp
   } finally {vi.unstubAllGlobals();}
 });
 
-it('blocks oversized evaluation before calling the provider and allows explicit selected-site comparisons',async()=>{
-  await db.batch(Array.from({length:goalLimits.options+1},(_,i)=>db.prepare(`INSERT INTO candidates
+it('preflights every goal batch before generation and evaluates a comparison with seventy candidate sites',async()=>{
+  const sites=Array.from({length:70},(_,i)=>`scope-${i}`);
+  await db.batch(sites.map((id,i)=>db.prepare(`INSERT INTO candidates
     (id,name,category,lat,lng,feasibility,costs,notes) VALUES (?,?,'pull-up',?,?,'suitable-for-comparison',?,'')`)
-    .bind(`scope-${i}`,`Scope ${i}`,pilot.center.lat,pilot.center.lng,JSON.stringify(costs))));
+    .bind(id,`Scope ${i}`,pilot.center.lat,pilot.center.lng,JSON.stringify(costs))));
   const goal=await makeGoal({...dateGoal,allowedTypes:[]});
-  const ref=await reference();
-  const provider=vi.fn();
+  const ref=await reference({...scene,selected:sites,selectedOnly:true});
+  const batches:string[][]=[];
+  let counts=0;
+  let tooLarge=true;
   const realFetch=fetch;
-  vi.stubGlobal('fetch',(input:RequestInfo|URL,init?:RequestInit)=>String(input).startsWith('https://api.openai.com/')?
-    provider(input,init):realFetch(input,init));
+  vi.stubGlobal('fetch',async(input:RequestInfo|URL,init?:RequestInit)=>{
+    if(!String(input).startsWith('https://api.openai.com/'))return realFetch(input,init);
+    const payload=JSON.parse(String(init?.body));
+    const scope=JSON.parse(payload.input[1].content);
+    const ids=scope.options.map(({id}:{id:string})=>id);
+    if(payload.text.format.name==='comparison_explanation') {
+      expect(ids.sort()).toEqual([...sites].sort());
+      expect(scope.options.filter((option:{goal?:{reason?:string}})=>option.goal?.reason)).toHaveLength(staffComparisonAI.explanation.detailOptions);
+      if(String(input).endsWith('/input_tokens'))return Response.json({input_tokens:9_000});
+      return Response.json({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify({
+        summary:'The comparison contains seventy possible sites.',tradeoffs:'',checks:'',referencedOptionIds:[],
+      })}]}]});
+    }
+    if(String(input).endsWith('/input_tokens')) {
+      counts++;
+      return Response.json({input_tokens:tooLarge&&ids.length<staffComparisonAI.goal.batchOptions?
+        staffComparisonAI.goal.inputTokens+1:1200});
+    }
+    expect(counts).toBe(Math.ceil(sites.length/staffComparisonAI.goal.batchOptions));
+    batches.push(ids);
+    return Response.json({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify({
+      clarification:null,assessments:ids.map((id:string)=>({id,fit:'partial',reason:'The site lacks delivery evidence.',
+        evidence:['s1'],missing:[],conflict:null})),
+    })}]}]});
+  });
   try {
-    expect(await send(staff,'/staff/goals/evaluate','POST',{...ref,goal})).toMatchObject({blocked:expect.stringContaining('Narrow the comparison')});
-    expect(provider).not.toHaveBeenCalled();
+    await db.prepare('UPDATE ai_staff_usage SET started=0').run();
+    expect(await send(staff,'/staff/goals/evaluate','POST',{...ref,goal},400)).toMatchObject({
+      error:expect.stringContaining('Turn on Selected sites only'),
+    });
+    expect(batches).toHaveLength(0);
+    tooLarge=false;counts=0;
+    await db.prepare('UPDATE ai_staff_usage SET started=0').run();
+    const evaluation=await send<{evaluationKey:string;evaluation:{assessments:{id:string}[]}}>(staff,'/staff/goals/evaluate','POST',{...ref,goal});
+    expect(evaluation.evaluation.assessments.map(({id})=>id)).toEqual([...sites].sort());
+    expect(batches.flat().sort()).toEqual([...sites].sort());
+    expect(await send(staff,'/staff/goals/evaluate','POST',{...ref,goal})).toEqual(evaluation);
+    expect(batches).toHaveLength(Math.ceil(sites.length/staffComparisonAI.goal.batchOptions));
+    await db.prepare('UPDATE ai_staff_usage SET started=0').run();
+    expect(await send(staff,'/staff/explain','POST',{...ref,goal:{...goal,filter:'all',order:'fit',evaluationKey:evaluation.evaluationKey}}))
+      .toMatchObject({summary:'The comparison contains seventy possible sites.'});
     const scoped=await reference({...scene,selected:['scope-0'],selectedOnly:true});
     expect(await send(staff,'/staff/goals/preview','POST',{...scoped,goal})).toMatchObject({blocked:null,evaluation:null});
   } finally {vi.unstubAllGlobals();}

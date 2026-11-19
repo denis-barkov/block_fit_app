@@ -192,7 +192,7 @@ function ManageGoals({programs,types,onSelect,close}: {programs:Programs;types:E
 }
 
 export function GoalStatus({goal,review,view,filter,order,budget,disabled,onFilter,onOrder,evaluate}: {
-  goal:Goal;review:ReviewState|undefined;view:{counts:Record<typeof goalBuckets[number],number>;shown:number;hidden:number};
+  goal:Goal;review:ReviewState|undefined;view:{counts:Record<typeof goalBuckets[number],number>};
   filter:GoalFilter;order:GoalOrder;budget:string;disabled:boolean;
   onFilter:(filter:GoalFilter)=>void;onOrder:(order:GoalOrder)=>void;evaluate:()=>void;
 }) {
@@ -229,7 +229,7 @@ export function GoalStatus({goal,review,view,filter,order,budget,disabled,onFilt
         {goalBuckets.filter(key=>view.counts[key]>0).map(key=><button key={key} className="button" type="button"
           aria-pressed={filter===key} onClick={()=>onFilter(filter===key?'all':key)}>{view.counts[key]} {bucketLabels[key]}</button>)}
         <InfoHint label="What goal status counts mean" content={<p>Each option counts once. A failed requirement or eligibility check puts it in Excluded. Unknown checks or insufficient evidence need information. A match is eligible and has Strong or Partial fit.</p>}>
-          <span className="text-sm font-semibold">{view.shown} shown · {view.hidden} hidden</span>
+          <span className="text-sm font-semibold">About these counts</span>
         </InfoHint>
       </div>
     </>}

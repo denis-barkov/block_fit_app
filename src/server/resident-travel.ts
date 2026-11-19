@@ -79,7 +79,7 @@ export async function suggestTravel(c:Context<App>) {
   const generation={store:false,service_tier:'default',max_output_tokens:ai.outputTokens};
   const key=await hash(JSON.stringify([scope,revision,input.origin,input.category,input.query,input.target,
     origin,observations,payload,generation,ai.inputTokens]));
-  const result=await generate(env,{payload,generation,revision,key,scope,cacheMs:travel.ai.cacheMs,parse:text=>{
+  const parse=(text:string)=>{
     let value:unknown;
     try {value=JSON.parse(text);} catch {return {reason:'invalid_json'};}
     const parsed=output.safeParse(value);
@@ -91,6 +91,7 @@ export async function suggestTravel(c:Context<App>) {
          (entry.reason==='mapped-bus'&&!modes?.includes('bus'))) return {reason:'unsupported_landmark'};
     }
     return {explanation:parsed.data.options,providerOutput:parsed.data};
-  }},fetch,c.get('requestId'));
+  };
+  const result=await generate(env,{requests:[{payload,generation,parse}],revision,key,scope,cacheMs:travel.ai.cacheMs,parse},fetch,c.get('requestId'));
   return c.json({options:result.value,cached:result.cached,evidence});
 }

@@ -1,13 +1,12 @@
 import { mapArea } from '../../config/map-area';
 import { limits } from '../../config/settings';
-import { scenarioInput, upfrontKeys } from '../contracts';
+import { scenarioInput } from '../contracts';
 import { highlightExclusions, levels, ranking, type Comparison } from './planning';
 
-const formatter = new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',minimumFractionDigits:0});
-const money = (cents: number | null) => {
-  if (cents === null) return null;
-  if (!Number.isFinite(cents) || cents < 0 || cents > Number.MAX_SAFE_INTEGER) throw new Error('Invalid cost.');
-  return formatter.format(cents/100);
+const cents = (value: number | null) => {
+  if (value === null) return null;
+  if (!Number.isFinite(value) || value < 0 || value > Number.MAX_SAFE_INTEGER) throw new Error('Invalid cost.');
+  return Math.round(value);
 };
 const asCount = (count: number, max: number) => {
   if (!Number.isInteger(count) || count < 0 || count > max) throw new Error('Invalid count.');
@@ -36,17 +35,15 @@ export function comparisonSnapshot(result: Comparison) {
     const count = asCount(option.count,unmet);
     const exclusions = highlightExclusions(option);
     return {
-      id:optionId(sites), name:names.join(' + '), type:sites.length === 1 ? 'single site' : 'combination',
-      ...(sites.length > 1 && {siteIds:sites}),
+      id:optionId(sites), name:names.join(' + '),
       newlyCovered:count,
       ...(sites.length > 1 && {overlap:asCount(option.overlap,count)}),
-      upfront:levels.map(level => money(option.estimates[level].upfront)),
-      lifecycle:levels.map(level => money(option.estimates[level].lifecycle)),
+      upfront:levels.map(level => cents(option.estimates[level].upfront)),
+      lifecycle:levels.map(level => cents(option.estimates[level].lifecycle)),
       fitsUpfrontBudget:levels.map(level => option.estimates[level].fits),
-      baseLifecyclePerNewRequester:money(base.perRequester),
-      ...(base.perRequester === null && {perRequesterUnavailable:count === 0 ? 'no additional coverage' : 'incomplete lifecycle cost'}),
+      baseLifecyclePerNewRequester:cents(base.perRequester),
       missing:[...new Set(option.missing.map(entry => entry.key))].sort(),
-      feasibility:option.feasibility, sufficientCostData:base.lifecycle !== null,
+      feasibility:option.feasibility,
       highlightEligible:exclusions.length === 0, highlightExclusions:exclusions,
     };
   }).sort((left,right) => left.id < right.id ? -1 : Number(left.id !== right.id));
@@ -55,7 +52,7 @@ export function comparisonSnapshot(result: Comparison) {
     scenario:{
       category:result.categoryName, area:mapArea.name, radiusMetres:scenario.radius,
       distance:'straight-line approximation', horizonYears:scenario.horizon,
-      upfrontBudgetMinorUnits:scenario.budget, upfrontBudget:money(scenario.budget),
+      upfrontBudgetMinorUnits:scenario.budget,
       demandData:dataKind(result.origins.filter(origin => origin.synthetic).length,result.origins.length),
       inventoryData:dataKind(result.existing.filter(pin => pin.fixture).length,result.existing.length),
       candidateData:dataKind(result.sites.filter(site => site.fixture).length,result.sites.length),
@@ -67,8 +64,6 @@ export function comparisonSnapshot(result: Comparison) {
     coverageDefinition:'Previously unserved requesters inside an option radius. Combinations count the union once, including overlap.',
     costs:{
       currency:'USD', internalUnit:'cents', rangeOrder:levels,
-      upfrontIncludes:upfrontKeys, lifecycleIncludes:['upfront','annual maintenance over horizon','scheduled replacements before horizon end'],
-      assumptions:'Illustrative, undiscounted constant dollars. Null costs indicate incomplete components. Fits compares upfront cost only.',
     },
     ranking:{
       highlightedOptionIds,
