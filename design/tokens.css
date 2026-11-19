@@ -24,4 +24,7 @@
   --page-width: 87.5rem;
   --map-height: clamp(17rem,40vw,30rem);
   --motion-fast: 150ms;
+  --action-icon-size: 1rem;
+  --info-icon-size: 1.125rem;
+  --info-target-size: 2.75rem;
 }

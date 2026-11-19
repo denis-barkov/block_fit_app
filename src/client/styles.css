@@ -21,6 +21,17 @@
   .shell { max-width:var(--page-width); @apply mx-auto px-4 md:px-8; }
   .panel { @apply rounded-card border border-line bg-paper p-4 shadow-card md:p-6 min-w-0; }
   .button { @apply inline-flex min-h-11 items-center justify-center rounded-control border border-line bg-white px-4 py-2 text-sm font-bold text-ink hover:bg-canvas; transition:background var(--motion-fast); }
+  .action-icon {
+    width:var(--action-icon-size); height:var(--action-icon-size);
+    @apply shrink-0;
+  }
+  .info-trigger {
+    width:var(--info-target-size); height:var(--info-target-size);
+    @apply inline-grid shrink-0 place-items-center rounded-full text-brand hover:bg-mint;
+  }
+  .info-trigger[aria-expanded=true] { @apply bg-mint; }
+  .info-trigger svg { width:var(--info-icon-size); height:var(--info-icon-size); }
+  .info-content { @apply mt-1 space-y-2 rounded-control border border-line bg-canvas px-3 py-2 text-sm text-muted; }
   .primary { @apply border-brand bg-brand text-white hover:bg-brand-dark; }
   .eyebrow { @apply text-xs font-bold uppercase tracking-widest text-brand; }
   .tag { @apply inline-flex rounded-full bg-mint px-2.5 py-1 text-xs font-bold text-brand-dark; }

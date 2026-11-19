@@ -1,3 +1,4 @@
+import { Compass, MapPin } from 'lucide-react';
 import { mapArea } from '../../config/map-area';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent } from 'react';
 import { categories, limits, pilot } from '../../config/settings';
@@ -8,9 +9,9 @@ import { approxDistance, byDistance, distanceBand, distanceNotice, eligible, typ
 import type { CollectEvidence } from './map-evidence';
 import { loginLink } from '../routes';
 import { rememberTravel, takeTravel } from './travel-return';
-import DestinationActions from './DestinationActions';
+import DestinationActions,{mapsHandoff} from './DestinationActions';
 import type { SavedLocation } from '../contracts';
-import { api, Categories, Feedback, Field, message, useAction } from './common';
+import { api, Categories, Feedback, Field, InfoHint, message, useAction } from './common';
 
 const MapView=lazy(()=>import('./Map'));
 const TravelPanel=lazy(()=>import('./TravelPanel'));
@@ -111,7 +112,9 @@ export default function Public({request,role}: {request?: (category:Category)=>v
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 id="neighborhood-map" className="text-lg md:text-xl">Neighborhood map</h2>
             <div className="flex flex-wrap gap-2">
-              <button ref={pinControl} className="button max-md:px-2.5" aria-pressed={pick} onClick={()=>setPick(!pick)}>{pick?'Cancel pin selection':'Set reference pin'}</button>
+              <button ref={pinControl} className="button gap-2 max-md:px-2.5" aria-pressed={pick} onClick={()=>setPick(!pick)}>
+                <MapPin className="action-icon hidden md:block" aria-hidden="true"/> {pick?'Cancel pin selection':'Set reference pin'}
+              </button>
               {reference && <button className="button" onClick={()=>{setReference(null);setHelper(null);}}>Clear reference</button>}
               {role==='resident' && <button className="button" disabled={savedPin.busy} onClick={()=>void savedPin.run(async()=>{
                 const {location}=await api<{location:SavedLocation|null}>('/resident');
@@ -129,7 +132,8 @@ export default function Public({request,role}: {request?: (category:Category)=>v
               ...(reference?[{...reference,kind:'reference' as const,id:'reference',label:'Reference point',short:'•'}]:[])]}/>
           </Suspense>
           {item && <article className="rounded-control border border-line p-4" aria-label="Selected equipment">
-            <h3>{item.name}</h3>{item.fixture && <span className="tag">Illustrative demo equipment</span>}<p className="text-sm muted">{categories[item.category]} · {item.park?.name||'Standalone equipment'}</p>
+            <InfoHint label="About Maps links" content={<p>{mapsHandoff}</p>}><h3>{item.name}</h3></InfoHint>
+            <p className="text-sm muted">{categories[item.category]} · {item.park?.name||'Standalone equipment'}</p>
             <dl className="my-4 grid gap-3 text-sm sm:grid-cols-2">
               {Object.entries({Verification:item.fixture&&item.verifiedOn?`Simulated · ${item.verifiedOn}`:item.verifiedOn||'Unverified',Condition:item.condition,
                 'Public access':item.access,Hours:item.park?.hours||'Unknown',Source:item.source||'Unknown'})
@@ -144,14 +148,16 @@ export default function Public({request,role}: {request?: (category:Category)=>v
           </article>}
         </section>
         <section className="panel xl:col-start-1 xl:row-start-1" aria-labelledby="equipment-listings" aria-busy={loading}>
-          <h2 id="equipment-listings">Equipment listings</h2>
+          {reference ? <InfoHint label="How distances are measured" content={<p>{distanceNotice}</p>}>
+            <h2 id="equipment-listings">Equipment listings</h2>
+          </InfoHint> : <h2 id="equipment-listings">Equipment listings</h2>}
           <p className="mb-3 text-sm muted" role="status">{loading?'Loading equipment…':`${results.length} listed locations`}</p>
           <Feedback error={error}/>{error && <button className="button" onClick={()=>setRetry(retry+1)}>Retry search</button>}
           {!error && !loading && !results.length && <p>No matching equipment is listed. Try a different site name or equipment type.</p>}
           {!error && !loading && !!results.length && !matches.length &&
             <p className="mb-3 text-sm muted">No matching locations have confirmed public access, usable equipment, and a verification record.</p>}
-          {reference && <p className="mb-3 text-sm muted">{distanceNotice}</p>}
-          {!loading && !error && !!matches.length && <button className="button mb-3" onClick={event=>openHelper(event,null)}>
+          {!loading && !error && !!matches.length && <button className="button mb-3 gap-2" onClick={event=>openHelper(event,null)}>
+            <Compass className="action-icon" aria-hidden="true"/>
             {noClose?'Nothing close by? Explore travel options.':'Explore travel options'}
           </button>}
           <ul className="space-y-2">

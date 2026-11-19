@@ -97,6 +97,12 @@ test('mobile registration preserves the selected category and persists the resid
   await dialog.getByRole('button',{name:'Save location'}).press('Enter');
   dialog=page.getByRole('dialog',{name:'Request equipment nearby'});
   await expect(dialog.getByLabel('Equipment type')).toHaveValue('parallel');
+  const requestHelp=dialog.getByRole('button',{name:'How your location is used'});
+  await expect(dialog.getByText(/Planning uses a 200 m/)).toBeHidden();
+  await requestHelp.press('Enter');
+  await expect(dialog.getByText(/Planning uses a 200 m/)).toBeVisible();
+  await requestHelp.press('Enter');
+  await expect(dialog.getByText(/Planning uses a 200 m/)).toBeHidden();
   await dialog.getByLabel('Note (optional)').fill('Initial note');
   await dialog.getByRole('button',{name:'Review request'}).press('Enter');
   await expect(dialog.getByRole('heading',{name:'Review your request'})).toBeFocused();
@@ -236,6 +242,11 @@ test('staff can compare and download on desktop and manage inventory on mobile',
   await expect(explanation.locator('img')).toHaveCount(0);
   const comparisonPanel=page.getByRole('region',{name:/Compare investment options/});
   await expect(comparisonPanel).not.toContainText('Export for review');
+  const comparisonHelp=comparisonPanel.getByRole('button',{name:'How this comparison works'});
+  await comparisonHelp.press('Enter');
+  await expect(comparisonPanel.getByText(/Upfront budget fit is separate/)).toBeVisible();
+  await comparisonHelp.press('Enter');
+  await expect(comparisonPanel.getByText(/Upfront budget fit is separate/)).toBeHidden();
   for(const width of [1440,768,390]) {
     await page.setViewportSize({width,height:844});
     await noPageOverflow(page);
@@ -361,7 +372,15 @@ test('public distance and copy work anonymously and a resident explicitly genera
   await page.getByRole('button',{name:'Set reference pin'}).click();
   const map=page.getByRole('region',{name:'Public equipment map'});
   await map.locator('canvas').click({position:{x:155,y:157}});
-  await expect(page.getByText('Straight-line distance; the actual journey may be longer.')).toBeVisible();
+  const distanceHelp=page.getByRole('button',{name:'How distances are measured'});
+  const distanceText=page.getByText('Straight-line distance; the actual journey may be longer.');
+  await expect(distanceHelp).toHaveAttribute('aria-expanded','false');
+  await expect(distanceText).toBeHidden();
+  await distanceHelp.press('Enter');
+  await expect(distanceHelp).toHaveAttribute('aria-expanded','true');
+  await expect(distanceText).toBeVisible();
+  await distanceHelp.press('Space');
+  await expect(distanceText).toBeHidden();
   await expect(page.getByRole('region',{name:'Equipment listings'}).getByText(/Approx\. distance/).first()).toBeVisible();
   await page.getByRole('button',{name:/Explore travel options/}).click();
   let panel=page.getByRole('dialog',{name:'Help me choose'});
@@ -372,6 +391,15 @@ test('public distance and copy work anonymously and a resident explicitly genera
   await page.getByRole('button',{name:'Sign in',exact:true}).press('Enter');
   await expect(panel).toBeVisible();
   expect(calls).toBe(0);
+  const travelHelp=panel.getByRole('button',{name:'About travel suggestions'});
+  const travelNotice=panel.getByText(/Suggestions use mapped landmarks/);
+  await expect(travelNotice).toBeHidden();
+  await travelHelp.click();
+  await expect(travelNotice).toBeVisible();
+  await expect(panel.getByText(/Maps receives the destination pin/)).toBeVisible();
+  await travelHelp.click();
+  await expect(travelNotice).toBeHidden();
+  await noPageOverflow(page);
   const shortlistButton=panel.getByRole('button',{name:'Generate suggestions',exact:true});
   await shortlistButton.click();
   await expect(panel.getByText('Compare this location using its straight-line distance from your pin.')).toBeVisible();

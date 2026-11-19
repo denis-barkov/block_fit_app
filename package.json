@@ -1,6 +1,6 @@
 {
   "name": "blockfit-nyc",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -15,6 +15,7 @@
     "@turf/distance": "7.4.0",
     "better-auth": "1.7.25",
     "hono": "4.13.19",
+    "lucide-react": "1.75.0",
     "maplibre-gl": "6.19.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",

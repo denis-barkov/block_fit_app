@@ -1,6 +1,9 @@
+import { Copy } from 'lucide-react';
 import { useState } from 'react';
 import type { PublicEquipment } from '../contracts';
 import { locationText, mapsLinks } from './travel-maps';
+
+export const mapsHandoff = 'Maps receives the destination pin. Choose a starting point there.';
 
 export default function DestinationActions({site}:{site:PublicEquipment}) {
   const [mode,setMode]=useState<'transit'|'driving'>('transit');
@@ -17,12 +20,11 @@ export default function DestinationActions({site}:{site:PublicEquipment}) {
       {links.map(link=><a key={link.name} className="button" href={link.href} target="_blank" rel="noreferrer">
         {site.fixture?`View pin in ${link.name}`:link.name}
       </a>)}
-      <button className="button" onClick={()=>void (async()=>{
+      <button className="button gap-2" onClick={()=>void (async()=>{
         try {await navigator.clipboard.writeText(locationText(site));setCopy('copied');}
         catch {setCopy('manual');}
-      })()}>Copy location</button>
+      })()}><Copy className="action-icon" aria-hidden="true"/> Copy location</button>
     </div>
-    {!!links.length && <p className="muted">Maps receives the destination pin. Choose a starting point there.</p>}
     {copy==='copied' && <p role="status">Location copied.</p>}
     {copy==='manual' && <label className="grid gap-1 font-semibold">Select and copy this location
       <textarea readOnly value={locationText(site)} onFocus={event=>event.target.select()}/>

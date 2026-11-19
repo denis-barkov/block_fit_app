@@ -1,4 +1,5 @@
-import { useEffect,useRef,useState, type FormEvent, type ReactNode } from 'react';
+import { Info } from 'lucide-react';
+import { useEffect,useId,useRef,useState, type FormEvent, type ReactNode } from 'react';
 import { categories, limits } from '../../config/settings';
 import type { Category, Coordinate } from '../contracts';
 
@@ -50,17 +51,38 @@ export function Coordinates({value,onChange}: {value:Coordinate;onChange:(value:
       required value={Number.isNaN(value.lng)?'':value.lng} onChange={e=>onChange({...value,lng:e.target.valueAsNumber})}/></Field>
   </div>;
 }
-export function Modal({title,onClose,children}: {title:string;onClose:()=>void;children:ReactNode}) {
+type Help = {label:string;content:ReactNode};
+
+export function InfoHint({label,content,children}: Help & {children:ReactNode}) {
+  const id=useId();
+  const [open,setOpen]=useState(false);
+  return <div className="min-w-0">
+    <div className="flex items-center">
+      {children}
+      <button type="button" className="info-trigger" aria-label={label} title={label}
+        aria-expanded={open} aria-controls={id} onClick={()=>setOpen(value=>!value)}>
+        <Info aria-hidden="true" focusable="false"/>
+      </button>
+    </div>
+    <div id={id} className="info-content" hidden={!open}>{content}</div>
+  </div>;
+}
+
+export function Modal({title,onClose,children,help}: {title:string;onClose:()=>void;children:ReactNode;help?:Help}) {
   const ref=useRef<HTMLDialogElement>(null);
+  const titleId=useId();
   useEffect(()=>{
     const dialog=ref.current;
     dialog?.showModal();
     return ()=>dialog?.close();
   },[]);
-  return <dialog ref={ref} aria-labelledby="modal-title" onCancel={event=>{event.preventDefault();onClose();}}
+  const heading=<h2 id={titleId}>{title}</h2>;
+  return <dialog ref={ref} aria-labelledby={titleId} onCancel={event=>{event.preventDefault();onClose();}}
     className="panel m-auto w-[min(100%-2rem,36rem)] max-h-[90dvh] overflow-auto">
-    <div className="mb-4 flex items-center justify-between gap-2"><h2 id="modal-title">{title}</h2>
-      <button className="button" onClick={onClose} aria-label="Close dialog">Close</button></div>
+    <div className={`mb-4 flex justify-between gap-2 ${help?'items-start':'items-center'}`}>
+      <div className="min-w-0 flex-1">{help?<InfoHint {...help}>{heading}</InfoHint>:heading}</div>
+      <button type="button" className="button shrink-0" onClick={onClose} aria-label="Close dialog" autoFocus>Close</button>
+    </div>
     {children}
   </dialog>;
 }

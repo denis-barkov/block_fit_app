@@ -1,3 +1,4 @@
+import { Sparkles } from 'lucide-react';
 import { useEffect,useRef,useState } from 'react';
 import { categories } from '../../config/settings';
 import { travel } from '../../config/travel';
@@ -5,7 +6,7 @@ import type { Category, Coordinate, PublicEquipment } from '../contracts';
 import { approxDistance, byDistance, distanceNotice, mapNotice, originEndpoint, reasonText, type TravelResponse } from '../travel';
 import { Feedback,message,Modal } from './common';
 import type { CollectEvidence, Endpoints } from './map-evidence';
-import DestinationActions from './DestinationActions';
+import DestinationActions,{mapsHandoff} from './DestinationActions';
 
 type Props={
   category:Category|'';query:string;origin:Coordinate|null;sites:PublicEquipment[];target:PublicEquipment|null;
@@ -57,14 +58,19 @@ export default function TravelPanel({category,query,origin,sites,target,role,col
 
   function details(site:PublicEquipment) {
     const distance=distances.get(site.id);
-    return <p className="text-sm muted">{categories[site.category]} · {site.condition} · Public access
-      {distance!==undefined && <> · Approx. distance {approxDistance(distance)}</>}
-      {site.fixture && <> · Illustrative demo</>}</p>;
+    return <p className="text-sm muted">
+      {distance!==undefined && <><strong className="text-ink">Approx. distance {approxDistance(distance)}</strong> · </>}
+      {categories[site.category]} · {site.condition} · Public access
+    </p>;
   }
 
-  return <Modal title={focused?'Explore this location':'Help me choose'} onClose={close}>
-    <div className="space-y-4">
-      <p className="text-sm muted">{mapNotice}</p>
+  return <Modal title={focused?'Explore this location':'Help me choose'} onClose={close}
+    help={{label:'About travel suggestions',content:<>
+      <p>{mapNotice}</p>
+      {origin && <p>{distanceNotice}</p>}
+      <p>{mapsHandoff}</p>
+    </>}}>
+    <div className="space-y-3">
       {!role && <>
         <p>Get a short comparison of equipment locations using your reference pin.</p>
         <button className="button primary" onClick={signIn}>Sign in or create an account to explore suggestions.</button>
@@ -74,7 +80,6 @@ export default function TravelPanel({category,query,origin,sites,target,role,col
         <p>Set a reference pin to compare distances from your starting point.</p>
         <button className="button" onClick={chooseOrigin}>Set reference pin</button>
       </div>}
-      {origin && <p className="text-sm muted">{distanceNotice}</p>}
       {!modeCategory && <p>Choose an equipment type in search to compare locations.</p>}
       {modeCategory && !matches.length && <p>No eligible matching equipment is listed. You can request equipment from the search page.</p>}
       {current && <article className="rounded-control border border-line p-3 space-y-2">
@@ -94,7 +99,8 @@ export default function TravelPanel({category,query,origin,sites,target,role,col
       {reply?.cached && <p role="status" className="text-sm muted">Reused a saved suggestion for this search.</p>}
       {reply && <p className="text-sm muted">{reply.evidence==='unavailable'?'No landmarks found in the inspected map data.':'Mapped landmarks are based on partial map coverage.'}</p>}
       {role==='resident' && origin && ranked.length>0 && !prepared && (!reply || !!focused) &&
-        <button className="button primary" disabled={phase!==null} onClick={()=>void generate()}>
+        <button className="button primary gap-2" disabled={phase!==null} onClick={()=>void generate()}>
+          <Sparkles className="action-icon" aria-hidden="true"/>
           {focused?'Generate suggestion':'Generate suggestions'}
         </button>}
       {phase && <p role="status">{phase==='collecting'?'Checking available map landmarks…':'Generating suggestions…'}</p>}

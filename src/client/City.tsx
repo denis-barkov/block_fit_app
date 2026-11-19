@@ -1,9 +1,10 @@
+import { Download } from 'lucide-react';
 import { mapArea } from '../../config/map-area';
 import { lazy,Suspense,useEffect,useState, type FormEvent } from 'react';
 import { categories,planning } from '../../config/settings';
 import type { Category, Explanation, Scenario } from '../contracts';
 import { feasibilityLabels,interpretation,newlyCovered,ranking,screening,type Comparison } from '../server/planning';
-import { api,Categories,Feedback,Field,message,useAction } from './common';
+import { api,Categories,Feedback,Field,InfoHint,message,useAction } from './common';
 import CityInventory,{type Inventory} from './CityInventory';
 
 const MapView=lazy(()=>import('./Map'));
@@ -136,15 +137,19 @@ function ComparisonPage({testWorkspace}: {testWorkspace:boolean}) {
       </section>
     </div>
     <section className="panel space-y-4" aria-labelledby="comparison-heading">
-      <div className="flex flex-wrap justify-between gap-3"><div><h2 id="comparison-heading">4. Compare investment options</h2>
+      <div className="flex flex-wrap justify-between gap-3"><div><InfoHint label="How this comparison works" content={<>
+        <p>{newlyCovered}</p>
+        <p>{screening} {ranking}</p>
+        <p>Upfront budget fit is separate from lifecycle costs. Missing amounts remain unknown. Zero new coverage yields N/A for cost per requester. {interpretation}</p>
+      </>}><h2 id="comparison-heading">4. Compare investment options</h2></InfoHint>
         {current && <p className="text-sm muted">Revision {current.revision} · {new Date(current.calculatedAt).toLocaleString()}</p>}</div>
         <div className="flex flex-wrap gap-2 md:ml-auto md:justify-end">{requestRef && <>
-          <button className="button primary" disabled={report.busy} onClick={()=>void report.run(async()=>{
+          <button className="button primary gap-2" disabled={report.busy} onClick={()=>void report.run(async()=>{
             const text=await api<string>('/staff/export','POST',requestRef);
             const url=URL.createObjectURL(new Blob([text],{type:'text/markdown'}));
             const anchor=document.createElement('a');anchor.href=url;anchor.download='blockfit-comparison.md';anchor.click();
             setTimeout(()=>URL.revokeObjectURL(url),1000);
-          },'Comparison brief downloaded.')}>Download brief</button>
+          },'Comparison brief downloaded.')}><Download className="action-icon" aria-hidden="true"/> Download brief</button>
           {!testWorkspace && <button className="button" disabled={ai.busy||action.busy} onClick={()=>void ai.run(async()=>{
             const explanation=await api<Explanation>('/staff/explain','POST',requestRef);
             setResult(value=>value?.calculatedAt===requestRef.calculatedAt?{...value,explanation}:value);
@@ -161,7 +166,6 @@ function ComparisonPage({testWorkspace}: {testWorkspace:boolean}) {
         {current.explanation.tradeoffs && <p className="mt-2 break-words text-sm"><strong>Tradeoffs.</strong> {current.explanation.tradeoffs}</p>}
         {current.explanation.checks && <p className="mt-2 break-words text-sm"><strong>Checks before proceeding.</strong> {current.explanation.checks}</p>}
       </article>}
-      <p className="text-sm muted">{newlyCovered}</p>
       {current ? <>
         {!current.highlighted.length && <p className="text-sm muted">No option meets all highlighting criteria.</p>}
         {!current.options.length && <p>No active candidates for this category.</p>}
@@ -188,11 +192,7 @@ function ComparisonPage({testWorkspace}: {testWorkspace:boolean}) {
             </tr>;
           })}</tbody></table>
         </div>}
-        <details className="text-sm muted">
-          <summary className="cursor-pointer font-bold">How this comparison works</summary>
-          <p className="mt-2">{screening} {ranking}</p>
-          <p className="mt-2">Upfront budget fit is separate from lifecycle costs. Missing amounts remain unknown. Zero new coverage yields N/A for cost per requester. {interpretation}</p>
-        </details>
+
       </>:<p role="status" className="muted">Run the comparison to see results for the current inputs and inventory.</p>}
     </section>
   </main>;

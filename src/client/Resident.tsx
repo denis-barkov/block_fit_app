@@ -1,8 +1,9 @@
+import { Plus } from 'lucide-react';
 import { mapArea, isInServiceArea, pinOutsideServiceArea } from '../../config/map-area';
 import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
 import { categories,limits,pilot,planning } from '../../config/settings';
 import type { Category, Coordinate, Demand, SavedLocation } from '../contracts';
-import { api,Categories,Coordinates,Feedback,Field,message,Modal,useAction } from './common';
+import { api,Categories,Coordinates,Feedback,Field,InfoHint,message,Modal,useAction } from './common';
 
 const MapView=lazy(()=>import('./Map'));
 type Data={location:SavedLocation|null; requests:Demand[]};
@@ -37,13 +38,15 @@ export default function Resident({initialCategory}: {initialCategory:Category}) 
     <Feedback error={loadError}/>
     {!data && (loadError ? <button className="button" onClick={()=>void load().catch(error=>setLoadError(message(error)))}>Retry</button> : <p role="status">Loading your requests…</p>)}
     {data && <div className="split">
-      <section className="panel space-y-3"><h2>Saved location</h2>
+      <section className="panel space-y-3">
+        <InfoHint label="About your saved location" content={<p>You can use a nearby landmark or intersection.</p>}>
+          <h2>Saved location</h2>
+        </InfoHint>
         {data.location ? <>
           <p>{data.location.label||'Private saved location'}</p>
           <p className="text-sm muted">{outside?`Your saved pin is outside ${mapArea.name}. Move it before starting a new request.`
             : canUseLocation?'Used for new requests.':'New requests require you to choose a location.'}</p>
         </> : <p>No location saved yet.</p>}
-        <p className="text-sm muted">You can use a nearby landmark or intersection.</p>
         <div className="flex flex-wrap gap-2">
           <button className="button" disabled={action.busy} onClick={()=>setLocating('location')}>
             {data.location?'Change saved location':'Set private location'}
@@ -53,10 +56,13 @@ export default function Resident({initialCategory}: {initialCategory:Category}) 
       </section>
       <section className="panel space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2>Request history</h2>
-          <button className="button primary" disabled={action.busy} onClick={()=>canUseLocation?setDraft(true):setLocating('request')}>New request</button>
+          <InfoHint label="What recorded means" content={<p>“Recorded” means your request is saved. Funding and installation require separate City review.</p>}>
+            <h2>Request history</h2>
+          </InfoHint>
+          <button className="button primary gap-2" disabled={action.busy} onClick={()=>canUseLocation?setDraft(true):setLocating('request')}>
+            <Plus className="action-icon" aria-hidden="true"/> New request
+          </button>
         </div>
-        <p className="text-sm muted">“Recorded” means your request is saved. Funding and installation require separate City review.</p>
         <Feedback {...action}/>
         {!data.requests.length && <p>No requests yet.</p>}
         {data.requests.map(item=><article className="space-y-2 rounded-control border border-line p-3" key={item.id}>
@@ -177,7 +183,10 @@ function RequestDialog({initial,initialCategory,saved,close,save}: {
     if(!review){setReview(true);return;}
     void action.run(()=>save({category,note,suggestion,point}));
   }
-  return <Modal title={initial?'Edit equipment request':'Request equipment nearby'} onClose={()=>{if(!action.busy)close();}}>
+  return <Modal title={initial?'Edit equipment request':'Request equipment nearby'} onClose={()=>{if(!action.busy)close();}}
+    help={{label:'How your location is used',content:<p>
+      Planning uses a {planning.radius} m straight-line radius around {saved.label||'your saved location'}.
+    </p>}}>
     <form className="space-y-3" onSubmit={submit}>
       {review ? <>
         <h3 ref={reviewTitle} tabIndex={-1}>Review your request</h3>
@@ -188,7 +197,6 @@ function RequestDialog({initial,initialCategory,saved,close,save}: {
         <p className="text-sm muted">One active request per equipment type. This records demand for planning discussion.</p>
       </>:<>
         <Field label="Equipment type"><Categories value={category} onChange={value=>value&&setCategory(value)}/></Field>
-        <p className="text-sm muted">Planning uses a {planning.radius} m straight-line radius around {saved.label||'your saved location'}.</p>
         <Field label="Note (optional)"><textarea value={note} maxLength={limits.text} onChange={e=>setNote(e.target.value)}/></Field>
         <Field label="Suggested installation site (optional)"><textarea value={suggestion} maxLength={limits.text}
           onChange={e=>setSuggestion(e.target.value)}/></Field>
