@@ -1,10 +1,10 @@
 import { Compass, MapPin } from 'lucide-react';
-import { mapArea } from '../../config/map-area';
+import { publicLinks } from '../../config/app';
+import { isInServiceArea, mapArea } from '../../config/map-area';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent } from 'react';
-import { categories, limits, pilot } from '../../config/settings';
+import { categories, defaultCategory, limits, pilot } from '../../config/settings';
 import type { Category, Coordinate, PublicEquipment } from '../contracts';
 import { travel } from '../../config/travel';
-import { isInServiceArea } from '../../config/map-area';
 import { approxDistance, byDistance, distanceBand, distanceNotice, eligible, type Observations } from '../travel';
 import type { CollectEvidence } from './map-evidence';
 import { loginLink } from '../routes';
@@ -15,7 +15,6 @@ import { api, Categories, Feedback, Field, InfoHint, message, useAction } from '
 
 const MapView=lazy(()=>import('./Map'));
 const TravelPanel=lazy(()=>import('./TravelPanel'));
-const maintenance='https://portal.311.nyc.gov/article/?kanumber=KA-01060';
 export default function Public({request,role}: {request?: (category:Category)=>void;role:'resident'|'staff'|null}) {
   const [returning]=useState(()=>role==='resident'?takeTravel():undefined);
   const [category,setCategory]=useState<Category|''>(returning?.category??'');
@@ -118,7 +117,7 @@ export default function Public({request,role}: {request?: (category:Category)=>v
               {reference && <button className="button" onClick={()=>{setReference(null);setHelper(null);}}>Clear reference</button>}
               {role==='resident' && <button className="button" disabled={savedPin.busy} onClick={()=>void savedPin.run(async()=>{
                 const {location}=await api<{location:SavedLocation|null}>('/resident');
-                if(!location||!isInServiceArea(location)) throw new Error('Save a request location in Brooklyn or Queens, or set a reference pin.');
+                if(!location||!isInServiceArea(location)) throw new Error(`Save a request location in ${mapArea.pinBoroughs}, or set a reference pin.`);
                 setReference({lat:location.lat,lng:location.lng});setPick(false);
               })}>Use saved request pin</button>}
             </div>
@@ -143,7 +142,7 @@ export default function Public({request,role}: {request?: (category:Category)=>v
             <DestinationActions key={item.id} site={item}/>
             <div className="mt-2 flex flex-wrap gap-2">
               {request && <button className="button" onClick={()=>request(item.category)}>Request this equipment nearby</button>}
-              {item.park?.cityMaintained && <a className="button" target="_blank" rel="noreferrer" href={maintenance}>Report a City park problem ↗</a>}
+              {item.park?.cityMaintained && <a className="button" target="_blank" rel="noreferrer" href={publicLinks.parkMaintenance}>Report a City park problem ↗</a>}
             </div>
           </article>}
         </section>
@@ -187,7 +186,7 @@ export default function Public({request,role}: {request?: (category:Category)=>v
       </Suspense>}
       {request && <section className="panel flex flex-wrap items-center justify-between gap-4">
         <div><h2>Missing something nearby?</h2><p className="muted">Your request can inform future investment comparisons.</p></div>
-        <button className="button primary" onClick={()=>request(category||item?.category||'pull-up')}>Request equipment nearby</button>
+        <button className="button primary" onClick={()=>request(category||item?.category||defaultCategory)}>Request equipment nearby</button>
       </section>}
     </div>
   </main>;

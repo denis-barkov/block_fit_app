@@ -1,7 +1,8 @@
 import { Download } from 'lucide-react';
+import { comparisonBriefFilename } from '../../config/app';
 import { mapArea } from '../../config/map-area';
 import { lazy,Suspense,useEffect,useState, type FormEvent } from 'react';
-import { categories,planning } from '../../config/settings';
+import { categories,defaultCategory,planning } from '../../config/settings';
 import type { Category, Explanation, Scenario } from '../contracts';
 import { feasibilityLabels,interpretation,newlyCovered,ranking,screening,type Comparison } from '../server/planning';
 import { api,Categories,Feedback,Field,InfoHint,message,useAction } from './common';
@@ -10,7 +11,7 @@ import CityInventory,{type Inventory} from './CityInventory';
 const MapView=lazy(()=>import('./Map'));
 const dollars=(amount:number|null)=>amount===null?'N/A':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(amount/100);
 type Result=Comparison&{explanation?:Explanation};
-const initial:Scenario={category:'pull-up',radius:planning.radius,horizon:planning.horizon,budget:planning.budget,selected:[]};
+const initial:Scenario={category:defaultCategory,radius:planning.radius,horizon:planning.horizon,budget:planning.budget,selected:[]};
 function InventoryPage() {
   const [inventory,setInventory]=useState<Inventory>();
   const [error,setError]=useState('');
@@ -147,7 +148,7 @@ function ComparisonPage({testWorkspace}: {testWorkspace:boolean}) {
           <button className="button primary gap-2" disabled={report.busy} onClick={()=>void report.run(async()=>{
             const text=await api<string>('/staff/export','POST',requestRef);
             const url=URL.createObjectURL(new Blob([text],{type:'text/markdown'}));
-            const anchor=document.createElement('a');anchor.href=url;anchor.download='blockfit-comparison.md';anchor.click();
+            const anchor=document.createElement('a');anchor.href=url;anchor.download=comparisonBriefFilename;anchor.click();
             setTimeout(()=>URL.revokeObjectURL(url),1000);
           },'Comparison brief downloaded.')}><Download className="action-icon" aria-hidden="true"/> Download brief</button>
           {!testWorkspace && <button className="button" disabled={ai.busy||action.busy} onClick={()=>void ai.run(async()=>{

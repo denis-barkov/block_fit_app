@@ -14,6 +14,7 @@ export type Pin = Coordinate & {
 type Props={pins:Pin[]; overlays?:{point:Coordinate;radius:number}[]; onPick?:(point:Coordinate)=>void; label:string;overview?:boolean;initialCenter?:Coordinate;evidence?:RefObject<CollectEvidence|null>};
 const valid=(point:Coordinate)=>Number.isFinite(point.lat)&&Number.isFinite(point.lng);
 const extent = ({west,south,east,north}: typeof mapArea.cityOverview): LngLatBoundsLike => [[west,south],[east,north]];
+const overviewOptions={padding:mapArea.fitPadding,maxZoom:mapArea.overviewMaxZoom,duration:0};
 export default function MapView({pins,overlays=[],onPick,label,overview,initialCenter=pilot.center,evidence}: Props) {
   const container=useRef<HTMLDivElement>(null);
   const map=useRef<MapInstance|null>(null);
@@ -31,7 +32,7 @@ export default function MapView({pins,overlays=[],onPick,label,overview,initialC
     return accepted;
   }
   function changeExtent() {
-    map.current?.fitBounds(extent(regional?pilot.demoOverview:mapArea.cityOverview),{padding:28,maxZoom:14.5,duration:0});
+    map.current?.fitBounds(extent(regional?pilot.demoOverview:mapArea.cityOverview),overviewOptions);
     setOutside(false);
     setRegional(!regional);
   }
@@ -45,17 +46,17 @@ export default function MapView({pins,overlays=[],onPick,label,overview,initialC
       module.current=lib;
       lib.setWorkerUrl(new URL(mapWorkerUrl,window.location.href).href);
       const view=new lib.Map({
-        container:container.current,style:'https://tiles.openfreemap.org/styles/liberty',
-        center:[initialCenter.lng,initialCenter.lat],zoom:14,
+        container:container.current,style:mapArea.styleUrl,
+        center:[initialCenter.lng,initialCenter.lat],zoom:mapArea.initialZoom,
         maxBounds:extent(mapArea.panBounds),scrollZoom:false,
       });
       const limitZoom = () => {
-        const cityCamera=view.cameraForBounds(extent(mapArea.cityOverview),{padding:28});
+        const cityCamera=view.cameraForBounds(extent(mapArea.cityOverview),{padding:mapArea.fitPadding});
         if (cityCamera?.zoom !== undefined) view.setMinZoom(cityCamera.zoom);
       };
       limitZoom();
       view.on('resize',limitZoom);
-      if(overview) view.fitBounds(extent(pilot.demoOverview),{padding:28,maxZoom:14.5,duration:0});
+      if(overview) view.fitBounds(extent(pilot.demoOverview),overviewOptions);
       map.current=view;
       view.addControl(new lib.NavigationControl({showCompass:false}),'top-right');
       view.on('load',()=>{
@@ -71,7 +72,7 @@ export default function MapView({pins,overlays=[],onPick,label,overview,initialC
       });
       view.on('click',event=>{if (pick.current) selectPoint(event.lngLat,pick.current);});
       view.on('error',()=>{if (!loaded) setUnavailable(true);});
-      timer=setTimeout(()=>{if (!loaded) setUnavailable(true);},9000);
+      timer=setTimeout(()=>{if (!loaded) setUnavailable(true);},mapArea.loadTimeoutMs);
     }).catch(()=>{if(mounted)setUnavailable(true);});
     return ()=>{mounted=false;clearTimeout(timer);map.current?.remove();map.current=null;};
   },[]);
@@ -112,7 +113,7 @@ export default function MapView({pins,overlays=[],onPick,label,overview,initialC
   return <div className="map-frame" role="region" aria-label={label}>
     <div ref={container} className="absolute inset-0" aria-hidden={unavailable||undefined}/>
     {ready && !unavailable && <button type="button" className="button absolute top-2 left-2 z-10"
-      onClick={changeExtent}>{regional?'Show Forest Hills demo':'Show all five boroughs'}</button>}
+      onClick={changeExtent}>{regional?`Show ${pilot.neighborhood} demo`:'Show all five boroughs'}</button>}
     {ready && !unavailable && !outside && <p className="pointer-events-none absolute bottom-10 right-2 rounded-control bg-paper px-2 py-1 text-xs">
       {mapArea.name} pin area
     </p>}

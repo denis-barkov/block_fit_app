@@ -1,8 +1,11 @@
 export const categories = {
   'pull-up': 'Pull-up bars', parallel: 'Parallel bars', 'sit-up': 'Sit-up benches',
 } as const;
+export const defaultCategory: keyof typeof categories = 'pull-up';
+const demoNeighborhood = 'Forest Hills';
 export const pilot = {
-  name: 'Forest Hills, Queens',
+  neighborhood: demoNeighborhood,
+  name: `${demoNeighborhood}, Queens`,
   center: { lat: 40.7202, lng: -73.8470 },
   demoOverview: { south: 40.713, north: 40.729, west: -73.856, east: -73.839 },
 };

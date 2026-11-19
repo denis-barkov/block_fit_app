@@ -1,4 +1,5 @@
 import { afterAll,beforeAll,describe,expect,it,vi } from 'vitest';
+import { appIdentity,comparisonBriefFilename } from '../config/app';
 import { limits,pilot,planning } from '../config/settings';
 import { createAuth } from '../src/server/auth';
 import app from '../src/server/index';
@@ -88,7 +89,10 @@ describe('connected Worker API and D1',()=>{
     const first=await json<Comparison>(await staff.send('/staff/compare','POST',scenario));
     expect(first).toMatchObject({demandCount:1,unmet:1,options:[{count:1,estimates:{base:{lifecycle:null}}}]});
     const ref={scenario,revision:first.revision,calculatedAt:first.calculatedAt};
-    const brief=await (await staff.send('/staff/export','POST',ref)).text();
+    const exported=await staff.send('/staff/export','POST',ref);
+    expect(exported.headers.get('Content-Disposition')).toBe(`attachment; filename="${comparisonBriefFilename}"`);
+    const brief=await exported.text();
+    expect(brief).toContain(`# ${appIdentity.name} investment comparison`);
     expect(brief).toContain('Unique newly covered requesters: 1');
     expect(brief).not.toContain(request.note);
     expect((await staff.send('/staff/explain','POST',ref)).status).toBe(503);

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, type FormEvent } from 'react';
-import { categories,limits,pilot,planning } from '../../config/settings';
+import { categories,defaultCategory,limits,pilot,planning } from '../../config/settings';
 import { costKeys, type Candidate, type Category, type Coordinate, type Costs, type Equipment, type Park } from '../contracts';
 import { api,Categories,Coordinates,Feedback,Field,Modal,useAction } from './common';
 
@@ -54,7 +54,7 @@ function InventoryForm({kind,record,parks,close,save}: {
   kind:Kind;record:Record|null;parks:Park[];close:()=>void;save:(value:object)=>Promise<void>;
 }) {
   const [point,setPoint]=useState<Coordinate>(record?{lat:record.lat,lng:record.lng}:pilot.center);
-  const [category,setCategory]=useState<Category>(record && 'category' in record?record.category:'pull-up');
+  const [category,setCategory]=useState<Category>(record && 'category' in record?record.category:defaultCategory);
   const park=record as Park|null;
   const equipment=record as Equipment|null;
   const candidate=record as Candidate|null;

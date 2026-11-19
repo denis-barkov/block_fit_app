@@ -1,5 +1,6 @@
 import { metres } from '../geo';
 export { metres } from '../geo';
+import { appIdentity } from '../../config/app';
 import { categories } from '../../config/settings';
 import { costKeys, upfrontKeys, type Candidate, type Coordinate, type Costs, type Scenario } from '../contracts';
 
@@ -102,7 +103,7 @@ export function makeBrief(result: Comparison, explanation?: import('../contracts
   const { scenario } = result;
   const syntheticCount=result.origins.filter(origin=>origin.synthetic).length;
   const lines = [
-    '# BlockFit NYC investment comparison', '',
+    `# ${appIdentity.name} investment comparison`, '',
     `Equipment: ${categories[scenario.category]} | Revision: ${result.revision} | Calculated: ${result.calculatedAt}`,
     `Radius: ${scenario.radius} m straight-line approximation | Horizon: ${scenario.horizon} years | Upfront budget: ${money(scenario.budget)}`,
     `Recorded demand: ${result.demandCount} | Already covered: ${result.demandCount-result.unmet} | Unmet before installation: ${result.unmet}`, '',

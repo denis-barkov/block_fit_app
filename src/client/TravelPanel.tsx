@@ -4,7 +4,7 @@ import { categories } from '../../config/settings';
 import { travel } from '../../config/travel';
 import type { Category, Coordinate, PublicEquipment } from '../contracts';
 import { approxDistance, byDistance, distanceNotice, mapNotice, originEndpoint, reasonText, type TravelResponse } from '../travel';
-import { Feedback,message,Modal } from './common';
+import { Feedback,message,Modal,sessionExpiredEvent } from './common';
 import type { CollectEvidence, Endpoints } from './map-evidence';
 import DestinationActions,{mapsHandoff} from './DestinationActions';
 
@@ -44,7 +44,7 @@ export default function TravelPanel({category,query,origin,sites,target,role,col
         body:JSON.stringify({category:modeCategory,query,origin,target:focused,observations})});
       if(!response.ok) {
         const problem=await response.json().catch(()=>null) as {error?:string}|null;
-        if(response.status===401) window.dispatchEvent(new Event('blockfit-session-expired'));
+        if(response.status===401) window.dispatchEvent(new Event(sessionExpiredEvent));
         throw new Error(problem?.error||'Suggestions could not be generated.');
       }
       const data=await response.json() as TravelResponse;

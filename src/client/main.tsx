@@ -2,9 +2,11 @@ import { lazy,Suspense,useEffect,useRef,useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './styles.css';
+import { appIdentity } from '../../config/app';
+import { defaultCategory } from '../../config/settings';
 import { category,type Category } from '../contracts';
 import { loginLink,residentLogin,returnPath,staffHome,staffInventoryPage,staffLogin } from '../routes';
-import { api,AuthForm,Feedback,message,Modal,PasswordForm,useAction,type User } from './common';
+import { api,AuthForm,Feedback,message,Modal,PasswordForm,sessionExpiredEvent,useAction,type User } from './common';
 import Public from './Public';
 import { clearTravel } from './travel-return';
 const Resident=lazy(()=>import('./Resident'));
@@ -48,9 +50,10 @@ function App() {
     };
     window.addEventListener('pagehide',hide);
     window.addEventListener('pageshow',restore);
-    window.addEventListener('blockfit-session-expired',refresh);
+    window.addEventListener(sessionExpiredEvent,refresh);
     return ()=>{
       window.removeEventListener('pagehide',hide);window.removeEventListener('pageshow',restore);
+      window.removeEventListener(sessionExpiredEvent,refresh);
     };
   },[]);
 
@@ -83,8 +86,8 @@ function App() {
     <header className={`border-b border-line text-white ${staffPage?'bg-workspace':'bg-ink'}`}>
       <div className="shell flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-4">
         <a href={staffPage?staffHome:'/'} className="flex items-center gap-2 text-xl font-bold">
-          <span className="grid size-9 place-items-center rounded-control bg-brand text-sm" aria-hidden="true">BF</span>
-          {staffPage?'City workspace':'BlockFit NYC'}
+          <span className="grid size-9 place-items-center rounded-control bg-brand text-sm" aria-hidden="true">{appIdentity.monogram}</span>
+          {staffPage?'City workspace':appIdentity.name}
         </a>
         <nav aria-label={staffPage?'Staff navigation':'Public navigation'} className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm font-semibold">
           {staffPage ? <>
@@ -104,7 +107,7 @@ function App() {
         </nav>
       </div>
     </header>
-    <div className="border-b border-line bg-mint"><p className="shell py-2 text-xs">NYCEDC project concept · Demonstration data · Requests inform planning discussion.</p></div>
+    <div className="border-b border-line bg-mint"><p className="shell py-2 text-xs">{appIdentity.projectConcept} · Demonstration data · Requests inform planning discussion.</p></div>
     <div id="main" tabIndex={-1}>
       {(error || action.error) && <div className="shell"><Feedback error={error||action.error}/>
         {error && <button className="button" onClick={()=>{setError('');recheck(n=>n+1);}}>Retry session</button>}</div>}
@@ -125,12 +128,12 @@ function App() {
           </section></main>
         ) : <Suspense fallback={<p className="shell py-8" role="status">Loading workspace…</p>}>
           {staffPage && user?.role==='staff' ? <City inventoryOnly={path===staffInventoryPage} testWorkspace={user.purpose==='automated-test'}/> :
-            path==='/requests' && user?.role==='resident' ? <Resident initialCategory={selected.success?selected.data:'pull-up'}/> :
+            path==='/requests' && user?.role==='resident' ? <Resident initialCategory={selected.success?selected.data:defaultCategory}/> :
             <Public role={user?.role??null} request={user?.role==='staff'?undefined:request}/>}
         </Suspense>}
     </div>
     {!staffPage && <footer className="mt-4 border-t border-line"><div className="shell flex flex-wrap justify-between gap-3 py-6 text-sm muted">
-      <p>BlockFit NYC · Outdoor fitness access and investment planning</p>
+      <p>{appIdentity.name} · {appIdentity.tagline}</p>
       {user===null && <a className="font-bold" href={staffLogin}>City staff sign in</a>}
     </div></footer>}
     {accountOpen && user && <Modal title="Account" onClose={()=>{

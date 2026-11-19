@@ -1,6 +1,9 @@
 import { expect,test,type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { appIdentity,comparisonBriefFilename } from '../../config/app';
+import { mapArea } from '../../config/map-area';
+import { pilot } from '../../config/settings';
 
 const credentials=()=>{
   const path=process.env.BLOCKFIT_STORE;
@@ -11,7 +14,7 @@ const credentials=()=>{
 };
 const passphrase='a synthetic resident test passphrase';
 async function allowFallback(page:Page) {
-  await page.route('https://tiles.openfreemap.org/**',route=>route.abort());
+  await page.route(`${new URL(mapArea.styleUrl).origin}/**`,route=>route.abort());
 }
 async function noPageOverflow(page:Page) {
   expect(await page.locator('html').evaluate(node=>node.scrollWidth<=node.clientWidth)).toBe(true);
@@ -19,6 +22,9 @@ async function noPageOverflow(page:Page) {
 test('public discovery keeps the map ahead of listings on smaller screens and supports fallback',async({page})=>{
   await allowFallback(page);
   await page.goto('/');
+  await expect(page).toHaveTitle(appIdentity.name);
+  await expect(page.getByRole('banner').getByRole('link',{name:appIdentity.name})).toBeVisible();
+  await expect(page.getByRole('contentinfo')).toContainText(appIdentity.name);
   await expect(page.getByRole('heading',{name:'Find outdoor fitness equipment.'})).toBeVisible();
   await expect(page.getByText('Map unavailable.',{exact:false})).toBeVisible();
   await page.getByLabel('Equipment type').selectOption('parallel');
@@ -45,7 +51,7 @@ test('public discovery keeps the map ahead of listings on smaller screens and su
   }
 });
 test('map pin and list share selection with an offline vector style',async({page})=>{
-  await page.route('https://tiles.openfreemap.org/styles/liberty',route=>route.fulfill({json:{
+  await page.route(mapArea.styleUrl,route=>route.fulfill({json:{
     version:8,sources:{},layers:[{id:'background',type:'background',paint:{'background-color':'#dbece2'}}],
   }}));
   await page.goto('/');
@@ -67,7 +73,7 @@ test('map pin and list share selection with an offline vector style',async({page
     await map.getByRole('button',{name:'Show all five boroughs'}).click();
     await expect(map.getByRole('button',{name:'Zoom out'})).toBeDisabled();
     await map.screenshot({path:test.info().outputPath(`nyc-extent-${width}.png`)});
-    await map.getByRole('button',{name:'Show Forest Hills demo'}).click();
+    await map.getByRole('button',{name:`Show ${pilot.neighborhood} demo`}).click();
     await expect(map.getByRole('button',{name:'Zoom out'})).toBeEnabled();
   }
 });
@@ -171,7 +177,7 @@ test('mobile registration preserves the selected category and persists the resid
   await expect(page.getByRole('heading',{name:'Find outdoor fitness equipment.'})).toBeVisible();
 });
 test('staff can compare and download on desktop and manage inventory on mobile',async({page})=>{
-  await page.route('https://tiles.openfreemap.org/styles/liberty',route=>route.fulfill({json:{
+  await page.route(mapArea.styleUrl,route=>route.fulfill({json:{
     version:8,sources:{},layers:[{id:'background',type:'background',paint:{'background-color':'#dbece2'}}],
   }}));
   const {staff}=credentials();
@@ -269,7 +275,7 @@ test('staff can compare and download on desktop and manage inventory on mobile',
   await expect(explanation).toHaveCount(0);
   const download=page.waitForEvent('download');
   await page.getByRole('button',{name:'Download brief'}).click();
-  expect((await download).suggestedFilename()).toBe('blockfit-comparison.md');
+  expect((await download).suggestedFilename()).toBe(comparisonBriefFilename);
   await page.setViewportSize({width:390,height:844});
   await noPageOverflow(page);
   await page.getByRole('link',{name:'View public site'}).click();
@@ -348,7 +354,7 @@ test('resident sign-in at the staff entry shows a role mismatch and survives mob
 });
 
 test('public distance and copy work anonymously and a resident explicitly generates both helper modes',async({page})=>{
-  await page.route('https://tiles.openfreemap.org/styles/liberty',route=>route.fulfill({json:{
+  await page.route(mapArea.styleUrl,route=>route.fulfill({json:{
     version:8,sources:{},layers:[{id:'background',type:'background',paint:{'background-color':'#dbece2'}}],
   }}));
   await page.addInitScript(()=>Object.defineProperty(navigator,'clipboard',{configurable:true,value:undefined}));

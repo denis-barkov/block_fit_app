@@ -3,6 +3,7 @@ import { etag } from 'hono/etag';
 import { bodyLimit } from 'hono/body-limit';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
+import { appIdentity } from '../../config/app';
 import { limits } from '../../config/settings';
 import { category } from '../contracts';
 import { loginLink,residentLogin,returnPath,staffHome,staffInventoryPage,staffLogin } from '../routes';
@@ -29,14 +30,14 @@ app.use('*',async (c,next) => {
   c.header('X-Content-Type-Options','nosniff');
   c.header('Referrer-Policy','strict-origin-when-cross-origin');
   if (await stmt(c.env.DB,'SELECT suspended FROM operations WHERE id=1').first<number>('suspended')) {
-    return c.text('BlockFit NYC is temporarily unavailable.',503,{'Cache-Control':'no-store'});
+    return c.text(`${appIdentity.name} is temporarily unavailable.`,503,{'Cache-Control':'no-store'});
   }
   await next();
 });
 app.use('/api/*',async (c,next) => {
   c.header('Cache-Control','no-store');
   if (!['GET','HEAD'].includes(c.req.method) && c.req.header('Origin') !== c.env.APP_ORIGIN) {
-    problem(403,'This action requires the BlockFit website origin.');
+    problem(403,`This action requires the ${appIdentity.name} website origin.`);
   }
   await next();
 });

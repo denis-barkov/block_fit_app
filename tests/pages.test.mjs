@@ -2,6 +2,7 @@ import {afterEach,expect,it,vi} from 'vitest';
 import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
 import {readFileSync,mkdtempSync,readdirSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
+import {appTitleHTML} from '../src/html.ts';
 import edge from '../src/pages/_worker.js';
 import {createAuth} from '../src/server/auth';
 import app from '../src/server/index';
@@ -97,6 +98,9 @@ it('derives the canonical URL from the owned Pages project and packages a privat
     vi.stubEnv('NODE_ENV','production');
     try {packageWorker(target,worker,workerOutput);}
     finally {vi.unstubAllEnvs();}
+    for(const file of ['dist/index.html',join(pages.output,'index.html')]) {
+      expect(readFileSync(file,'utf8')).toContain(`<title>${appTitleHTML}</title>`);
+    }
     for(const filename of [
       'investment-comparison/explain-investment-options.txt',
       'resident-travel/choose-destinations.txt',

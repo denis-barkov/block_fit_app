@@ -2,6 +2,7 @@ import {copyFileSync,mkdirSync,readFileSync,writeFileSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {bin,run} from './environment.mjs';
 import {CloudflareError} from './cloudflare.mjs';
+import {appTitleHTML} from '../src/html.ts';
 
 export const pagesBranch='main';
 export const pagesProjectPath=env=>'/pages/projects/'+env.PAGES_PROJECT_NAME;
@@ -41,7 +42,7 @@ export function packagePages(env,directory) {
   copyFileSync(resolve('src/pages/_worker.js'),join(output,'_worker.js'));
   writeFileSync(join(output,'_routes.json'),JSON.stringify({version:1,include:['/*'],exclude:[]})+'\n');
   // A generic static fallback keeps the upload nonempty and contains no app assets or backend information.
-  writeFileSync(join(output,'index.html'),'<!doctype html><html lang="en"><meta charset="utf-8"><title>BlockFit NYC</title><p>The application is temporarily unavailable.</p></html>\n');
+  writeFileSync(join(output,'index.html'),`<!doctype html><html lang="en"><meta charset="utf-8"><title>${appTitleHTML}</title><p>The application is temporarily unavailable.</p></html>\n`);
   writeFileSync(path,JSON.stringify(config,null,2)+'\n',{mode:0o600});
   console.log(`Packaged Pages ingress for ${env.APP_ORIGIN}.`);
   return {path,output};

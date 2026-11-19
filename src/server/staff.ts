@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { comparisonBriefFilename } from '../../config/app';
 import { isInServiceArea, pinOutsideServiceArea } from '../../config/map-area';
 import { z } from 'zod';
 import { candidateInput, equipmentInput, parkInput, scenarioInput, type Coordinate, type Scenario } from '../contracts';
@@ -71,7 +72,7 @@ staff.post('/export',async c => {
   const {scenario,revision,calculatedAt} = await body(c,reference);
   const result = await comparison(c.env.DB,scenario,isTest(c),revision);
   return c.body(makeBrief({...result,calculatedAt},isTest(c)?undefined:await cachedExplanation(c.env,result)),200,{
-    'Content-Type':'text/markdown; charset=UTF-8','Content-Disposition':'attachment; filename="blockfit-comparison.md"',
+    'Content-Type':'text/markdown; charset=UTF-8','Content-Disposition':`attachment; filename="${comparisonBriefFilename}"`,
   });
 });
 staff.post('/explain',async c => {

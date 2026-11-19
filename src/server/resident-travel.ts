@@ -2,7 +2,7 @@ import type { Context } from 'hono';
 import { z } from 'zod';
 import { ai, categories, limits } from '../../config/settings';
 import { travel } from '../../config/travel';
-import { isInServiceArea } from '../../config/map-area';
+import { isInServiceArea, mapArea } from '../../config/map-area';
 import { category, coordinate, type PublicEquipment } from '../contracts';
 import { byDistance, eligible, landmarkModes, normalizeLandmarks, originEndpoint, reasonText, travelReasons } from '../travel';
 import { generate, hash, modelParameters } from './ai-gateway';
@@ -13,7 +13,7 @@ import { body, problem, type App } from './web';
 const siteId=z.string().min(1).max(64);
 const inputSchema=z.object({
   category, query:z.string().trim().max(limits.shortText),
-  origin:coordinate.refine(isInServiceArea,'Choose a pin in Brooklyn or Queens.'),
+  origin:coordinate.refine(isInServiceArea,`Choose a pin in ${mapArea.pinBoroughs}.`),
   target:siteId.nullable(),
   observations:z.record(siteId,z.array(coordinate.extend({
     mode:z.enum(landmarkModes),name:z.string().max(travel.map.nameLength),

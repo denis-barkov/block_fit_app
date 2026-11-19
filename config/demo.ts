@@ -1,19 +1,21 @@
+import { pilot } from './settings.ts';
+
 export const demoVersion=2;
-export const illustrative='Illustrative Forest Hills demo fixture. No field inspection.';
-export const simulated='Simulated verification for the Forest Hills demo. No field inspection.';
+export const illustrative=`Illustrative ${pilot.neighborhood} demo fixture. No field inspection.`;
+export const simulated=`Simulated verification for the ${pilot.neighborhood} demo. No field inspection.`;
 const amount=(base:number)=>({low:Math.round(base*.8),base,high:Math.round(base*1.2)});
 const profile=(equipment:number,installation:number,maintenance:number|null)=>({
   equipment:amount(equipment),installation:amount(installation),preparation:amount(0),accessibility:amount(0),
   maintenance:maintenance===null?null:amount(maintenance),replacement:amount(300_000),interval:8,replacementPlan:'scheduled',
-  source:'Illustrative costs for the Forest Hills demo',
+  source:`Illustrative costs for the ${pilot.neighborhood} demo`,
 });
 
 // Fictional sites in several Forest Hills blocks. Coordinates place scenario markers, not verified facilities.
 export const demoParks=[
-  ['demo-west','Forest Hills West demo area',40.7190,-73.8500],
-  ['demo-east','Forest Hills East demo area',40.7180,-73.8415],
-  ['demo-north','Forest Hills North demo area',40.7252,-73.8502],
-  ['demo-south','Forest Hills South demo area',40.7140,-73.8451],
+  ['demo-west',`${pilot.neighborhood} West demo area`,40.7190,-73.8500],
+  ['demo-east',`${pilot.neighborhood} East demo area`,40.7180,-73.8415],
+  ['demo-north',`${pilot.neighborhood} North demo area`,40.7252,-73.8502],
+  ['demo-south',`${pilot.neighborhood} South demo area`,40.7140,-73.8451],
 ] as const;
 
 export const demoEquipment=[

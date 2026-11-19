@@ -4,11 +4,12 @@ import { categories, limits } from '../../config/settings';
 import type { Category, Coordinate } from '../contracts';
 
 export interface User { id:string; name:string; email:string; role:'staff'|'resident'; purpose?:string|null }
+export const sessionExpiredEvent = 'blockfit-session-expired';
 export async function api<T>(path: string, method = 'GET', data?: unknown): Promise<T> {
   const response = await fetch('/api'+path,{method,headers:data === undefined ? {} : {'Content-Type':'application/json'},
     body:data === undefined ? undefined : JSON.stringify(data)});
   if (!response.ok) {
-    if (response.status===401 && !path.startsWith('/auth/')) window.dispatchEvent(new Event('blockfit-session-expired'));
+    if (response.status===401 && !path.startsWith('/auth/')) window.dispatchEvent(new Event(sessionExpiredEvent));
     const error = await response.json().catch(() => ({})) as {error?:string;message?:string};
     throw new Error(error.error || error.message || 'Something went wrong. Please try again.');
   }
