@@ -6,6 +6,7 @@ import {spawnSync} from 'node:child_process';
 import {z} from 'zod';
 
 export const state=resolve('.blockfit');
+const sharedModelSettings=['OPENAI_MODEL','OPENAI_REASONING_EFFORT','AI_INPUT_MICROUSD_PER_MILLION','AI_OUTPUT_MICROUSD_PER_MILLION'];
 const readEnv = path => existsSync(path)?parseEnv(readFileSync(path,'utf8')):{};
 const name=z.string().regex(/^[a-z][a-z0-9-]{1,30}$/);
 const letterToken=z.string().regex(/^[a-z0-9][a-z0-9-]{0,29}$/);
@@ -19,6 +20,7 @@ const schema=z.object({
   PAGES_PROJECT_NAME:z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,56}[a-z0-9])?$/).or(z.literal('')).optional().default(''),
   DEPLOYMENT_SUFFIX:letterToken.or(z.literal('')).optional().default(''),
   AI_ENABLED:z.enum(['true','false']).optional().default('false'),OPENAI_API_KEY:optionalText,OPENAI_MODEL:optionalText,
+  OPENAI_REASONING_EFFORT:z.enum(['','none','low','medium','high','xhigh','max']).optional().default(''),
   AI_BUDGET_MICROUSD:optionalInteger,AI_INPUT_MICROUSD_PER_MILLION:optionalInteger,AI_OUTPUT_MICROUSD_PER_MILLION:optionalInteger,
 });
 export function setupEnvironment() {
@@ -33,7 +35,11 @@ export function setupEnvironment() {
 }
 export function environment(selected,{dryRun=false}={}) {
   if(selected!=='local'&&selected!=='prod') throw new Error('Select ENV=local or ENV=prod explicitly.');
-  const data={...readEnv('.env'),...readEnv('.env.'+selected)};
+  const override=readEnv('.env.'+selected);
+  if(sharedModelSettings.some(key=>Object.hasOwn(override,key))) {
+    throw new Error('Keep the OpenAI model, reasoning effort, and token prices in the shared root .env.');
+  }
+  const data={...readEnv('.env'),...override};
   // CI can inject only these private values, and must explicitly opt in.
   if (selected==='prod' && process.env.BLOCKFIT_CI_INJECT==='true') {
     for (const key of ['CLOUDFLARE_API_TOKEN','CLOUDFLARE_TAG_API_TOKEN','AUTH_SECRET','OPENAI_API_KEY']) {
@@ -54,9 +60,12 @@ export function environment(selected,{dryRun=false}={}) {
       (origin && (origin.protocol!=='https:' || origin.port || !/^[a-z0-9][a-z0-9-]*\.pages\.dev$/.test(origin.hostname))))) {
     throw new Error('Production requires a valid Cloudflare account and Pages project name, plus a recovery email for live commands. If set, APP_ORIGIN must be the HTTPS pages.dev origin.');
   }
-  if(env.AI_ENABLED==='true' && (!env.OPENAI_API_KEY || !env.AI_BUDGET_MICROUSD ||
+  if(/^gpt-6\.2-(sol|astra)(?:-|$)/.test(env.OPENAI_MODEL) && env.OPENAI_REASONING_EFFORT==='none') {
+    throw new Error('GPT-6.2 Sol and Astra require reasoning effort of low or higher.');
+  }
+  if(env.AI_ENABLED==='true' && (!env.OPENAI_MODEL || !env.OPENAI_REASONING_EFFORT || !env.OPENAI_API_KEY || !env.AI_BUDGET_MICROUSD ||
     !env.AI_INPUT_MICROUSD_PER_MILLION || !env.AI_OUTPUT_MICROUSD_PER_MILLION)) {
-    throw new Error('Live AI requires a key, budget, and input/output prices.');
+    throw new Error('Live AI requires a shared model, reasoning effort, input/output prices, a key and a budget.');
   }
   return {...env,resourceName,origin};
 }
@@ -69,7 +78,8 @@ export function writeConfig(env,{databaseId,directory=state}={}) {
   const fromConfig=path=>relative(directory,resolve(path));
   const config={...base,name:env.resourceName,main:fromConfig(base.main),assets:{...base.assets,directory:fromConfig('dist')},
     vars:{APP_ORIGIN:env.APP_ORIGIN,DEPLOYMENT:env.DEPLOYMENT,CONTACT_EMAIL:env.CONTACT_EMAIL||'',
-      AI_ENABLED:env.AI_ENABLED,OPENAI_MODEL:env.OPENAI_MODEL||''},
+      AI_ENABLED:env.AI_ENABLED,OPENAI_MODEL:env.OPENAI_MODEL||'',
+      OPENAI_REASONING_EFFORT:env.OPENAI_REASONING_EFFORT||''},
     d1_databases:[{...base.d1_databases[0],database_name:env.resourceName,migrations_dir:fromConfig('migrations')}],
   };
   if(prod) {

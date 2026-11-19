@@ -48,7 +48,9 @@ app.get('/api/inventory',etag(),async c => {
   const search = c.req.query('q')?.trim() ?? '';
   if (filter && !category.safeParse(filter).success) problem(400,'Choose a valid equipment type.');
   if (search.length > limits.shortText) problem(400,'Search text is too long.');
-  const result = await inventory(c.env.DB,filter || null,search);
+  const after=c.req.query('after');
+  if(after!==undefined && after.length>64) problem(400,'Invalid inventory cursor.');
+  const result = await inventory(c.env.DB,filter || null,search,after);
   c.header('Cache-Control','public, max-age=0, must-revalidate');
   return c.json(result);
 });

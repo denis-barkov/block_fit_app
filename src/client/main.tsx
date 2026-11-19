@@ -6,6 +6,7 @@ import { category,type Category } from '../contracts';
 import { loginLink,residentLogin,returnPath,staffHome,staffInventoryPage,staffLogin } from '../routes';
 import { api,AuthForm,Feedback,message,Modal,PasswordForm,useAction,type User } from './common';
 import Public from './Public';
+import { clearTravel } from './travel-return';
 const Resident=lazy(()=>import('./Resident'));
 const City=lazy(()=>import('./City'));
 
@@ -59,6 +60,7 @@ function App() {
 
   const signOut=()=>void action.run(async()=>{
     await api('/auth/sign-out','POST',{});
+    clearTravel();
     setUser(undefined);
     location.replace(staffPage?staffLogin:'/');
   });
@@ -124,7 +126,7 @@ function App() {
         ) : <Suspense fallback={<p className="shell py-8" role="status">Loading workspace…</p>}>
           {staffPage && user?.role==='staff' ? <City inventoryOnly={path===staffInventoryPage} testWorkspace={user.purpose==='automated-test'}/> :
             path==='/requests' && user?.role==='resident' ? <Resident initialCategory={selected.success?selected.data:'pull-up'}/> :
-            <Public request={user?.role==='staff'?undefined:request}/>}
+            <Public role={user?.role??null} request={user?.role==='staff'?undefined:request}/>}
         </Suspense>}
     </div>
     {!staffPage && <footer className="mt-4 border-t border-line"><div className="shell flex flex-wrap justify-between gap-3 py-6 text-sm muted">

@@ -1,39 +1,95 @@
 import { mapArea } from '../../config/map-area';
-import { lazy, Suspense, useEffect, useState, type FormEvent } from 'react';
-import { categories, limits,  pilot } from '../../config/settings';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent } from 'react';
+import { categories, limits, pilot } from '../../config/settings';
 import type { Category, Coordinate, PublicEquipment } from '../contracts';
-import { metres } from '../server/planning';
-import { Categories, Feedback, Field, message } from './common';
+import { travel } from '../../config/travel';
+import { isInServiceArea } from '../../config/map-area';
+import { approxDistance, byDistance, distanceBand, distanceNotice, eligible, type Observations } from '../travel';
+import type { CollectEvidence } from './map-evidence';
+import { loginLink } from '../routes';
+import { rememberTravel, takeTravel } from './travel-return';
+import DestinationActions from './DestinationActions';
+import type { SavedLocation } from '../contracts';
+import { api, Categories, Feedback, Field, message, useAction } from './common';
 
 const MapView=lazy(()=>import('./Map'));
+const TravelPanel=lazy(()=>import('./TravelPanel'));
 const maintenance='https://portal.311.nyc.gov/article/?kanumber=KA-01060';
-export default function Public({request}: {request?: (category:Category)=>void}) {
-  const [category,setCategory]=useState<Category|''>('');
-  const [search,setSearch]=useState('');
-  const [query,setQuery]=useState('');
+export default function Public({request,role}: {request?: (category:Category)=>void;role:'resident'|'staff'|null}) {
+  const [returning]=useState(()=>role==='resident'?takeTravel():undefined);
+  const [category,setCategory]=useState<Category|''>(returning?.category??'');
+  const [search,setSearch]=useState(returning?.query??'');
+  const [query,setQuery]=useState(returning?.query??'');
   const [results,setResults]=useState<PublicEquipment[]>([]);
-  const [selected,setSelected]=useState('');
-  const [reference,setReference]=useState<Coordinate|null>(null);
+  const [selected,setSelected]=useState(returning?.target??'');
+  const [reference,setReference]=useState<Coordinate|null>(returning?.origin??null);
   const [pick,setPick]=useState(false);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState('');
   const [retry,setRetry]=useState(0);
+  const [visible,setVisible]=useState(travel.visiblePageSize);
+  const [helper,setHelper]=useState<{target:string|null}|null>(returning?{target:returning.target}:null);
+  const [inventoryVersion,setInventoryVersion]=useState(0);
+  const evidence=useRef<CollectEvidence|null>(null);
+  const opener=useRef<HTMLElement|null>(null);
+  const pinControl=useRef<HTMLButtonElement|null>(null);
+  const context=JSON.stringify([category,query,reference,inventoryVersion]);
+  const observations=useRef<{context:string;entries:Map<string,Observations>}|null>(null);
+  const savedPin=useAction();
   useEffect(()=>{
     const controller=new AbortController();
-    setLoading(true);setError('');
-    const queryString=new URLSearchParams({category,q:query});
-    void fetch(`/api/inventory?${queryString}`,{signal:controller.signal}).then(async response=>{
-      if (!response.ok) throw new Error('Equipment could not be loaded. Try again.');
-      const data:PublicEquipment[]=await response.json();
-      setResults(data);
-      setSelected(id=>data.some(item=>item.id===id)?id:data[0]?.id??'');
-    }).catch(err=>{if(!controller.signal.aborted)setError(message(err));})
+    setLoading(true);setError('');setVisible(travel.visiblePageSize);
+    async function load() {
+      const equipment:PublicEquipment[]=[];
+      let after='';
+      for(;;) {
+        const params=new URLSearchParams({category,q:query,after});
+        const response=await fetch(`/api/inventory?${params}`,{signal:controller.signal});
+        if(!response.ok) throw new Error('Equipment could not be loaded. Try again.');
+        const page:PublicEquipment[]=await response.json();
+        equipment.push(...page);
+        if(page.length<travel.pageSize) break;
+        after=page[page.length-1].id;
+      }
+      if(controller.signal.aborted) return;
+      equipment.sort((left,right)=>left.name.localeCompare(right.name)||left.id.localeCompare(right.id));
+      setResults(equipment);setInventoryVersion(value=>value+1);
+      setSelected(id=>equipment.some(item=>item.id===id)?id:equipment[0]?.id??'');
+    }
+    void load().catch(err=>{if(!controller.signal.aborted)setError(message(err));})
       .finally(()=>{if(!controller.signal.aborted)setLoading(false);});
     return ()=>controller.abort();
   },[category,query,retry]);
-  const sorted=results.map(item=>({item,distance:reference?metres(reference,item):null}))
-    .sort((a,b)=>(a.distance??0)-(b.distance??0));
+  const sorted=useMemo(()=>reference?byDistance(results,reference).map(({site,distance})=>({item:site,distance}))
+    :results.map(item=>({item,distance:null})),[results,reference]);
+  const sites=useMemo(()=>results.filter(eligible),[results]);
   const item=results.find(row=>row.id===selected);
+  const target=sites.find(site=>site.id===helper?.target)??null;
+  const matches=sites.filter(site=>!category||site.category===category);
+  const matchIds=new Set(matches.map(site=>site.id));
+  const noClose=reference && matches.length && !sorted.some(entry=>entry.distance!==null &&
+    entry.distance<=travel.bands[1].limit && matchIds.has(entry.item.id));
+  const shown=sorted.slice(0,visible);
+  const markers=sorted.slice(0,Math.max(visible,travel.pageSize)).map(entry=>entry.item);
+  if(item&&!markers.includes(item)) markers.push(item);
+  function closeHelper() {
+    setHelper(null);
+    requestAnimationFrame(()=>opener.current?.focus());
+  }
+  function openHelper(event:MouseEvent<HTMLButtonElement>,id:string|null) {
+    opener.current=event.currentTarget;
+    setHelper({target:id});
+  }
+  async function collect(points:Parameters<CollectEvidence>[0],signal:AbortSignal) {
+    if(observations.current?.context!==context) observations.current={context,entries:new Map()};
+    const cache=observations.current.entries;
+    const key=JSON.stringify(Object.keys(points));
+    const prior=cache.get(key);
+    if(prior) return prior;
+    const snapshot=await evidence.current?.(points,signal)??{};
+    if(!signal.aborted) cache.set(key,snapshot);
+    return snapshot;
+  }
   function submit(event:FormEvent) {event.preventDefault();setQuery(search.trim());}
   return <main>
     <section className="border-b border-line bg-white">
@@ -55,14 +111,20 @@ export default function Public({request}: {request?: (category:Category)=>void})
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 id="neighborhood-map" className="text-lg md:text-xl">Neighborhood map</h2>
             <div className="flex flex-wrap gap-2">
-              <button className="button max-md:px-2.5" aria-pressed={pick} onClick={()=>setPick(!pick)}>{pick?'Cancel pin selection':'Set reference pin'}</button>
-              {reference && <button className="button" onClick={()=>setReference(null)}>Clear reference</button>}
+              <button ref={pinControl} className="button max-md:px-2.5" aria-pressed={pick} onClick={()=>setPick(!pick)}>{pick?'Cancel pin selection':'Set reference pin'}</button>
+              {reference && <button className="button" onClick={()=>{setReference(null);setHelper(null);}}>Clear reference</button>}
+              {role==='resident' && <button className="button" disabled={savedPin.busy} onClick={()=>void savedPin.run(async()=>{
+                const {location}=await api<{location:SavedLocation|null}>('/resident');
+                if(!location||!isInServiceArea(location)) throw new Error('Save a request location in Brooklyn or Queens, or set a reference pin.');
+                setReference({lat:location.lat,lng:location.lng});setPick(false);
+              })}>Use saved request pin</button>}
             </div>
           </div>
+          <Feedback error={savedPin.error}/>
           {pick && <p role="status" className="text-sm muted">Click the map to sort listings by approximate straight-line distance.</p>}
-          <Suspense fallback={<p>Loading map…</p>}><MapView label="Public equipment map"
+          <Suspense fallback={<p>Loading map…</p>}><MapView label="Public equipment map" evidence={evidence} initialCenter={returning?.origin??undefined}
             onPick={pick?point=>{setReference(point);setPick(false);}:undefined}
-            pins={[...results.map((row,index)=>({...row,label:row.name,kind:'equipment' as const,short:String(index+1),
+            pins={[...markers.map((row,index)=>({...row,label:row.name,kind:'equipment' as const,short:String(index+1),
               selected:row.id===selected,onSelect:()=>{if(!pick)setSelected(row.id);}})),
               ...(reference?[{...reference,kind:'reference' as const,id:'reference',label:'Reference point',short:'•'}]:[])]}/>
           </Suspense>
@@ -73,7 +135,9 @@ export default function Public({request}: {request?: (category:Category)=>void})
                 'Public access':item.access,Hours:item.park?.hours||'Unknown',Source:item.source||'Unknown'})
                 .map(([key,value])=><div key={key}><dt className="font-bold">{key}</dt><dd>{value}</dd></div>)}
             </dl>
-            <div className="flex flex-wrap gap-2">
+            {eligible(item)&&<button className="button mb-2" onClick={event=>openHelper(event,item.id)}>Explore this location</button>}
+            <DestinationActions key={item.id} site={item}/>
+            <div className="mt-2 flex flex-wrap gap-2">
               {request && <button className="button" onClick={()=>request(item.category)}>Request this equipment nearby</button>}
               {item.park?.cityMaintained && <a className="button" target="_blank" rel="noreferrer" href={maintenance}>Report a City park problem ↗</a>}
             </div>
@@ -84,8 +148,14 @@ export default function Public({request}: {request?: (category:Category)=>void})
           <p className="mb-3 text-sm muted" role="status">{loading?'Loading equipment…':`${results.length} listed locations`}</p>
           <Feedback error={error}/>{error && <button className="button" onClick={()=>setRetry(retry+1)}>Retry search</button>}
           {!error && !loading && !results.length && <p>No matching equipment is listed. Try a different site name or equipment type.</p>}
+          {!error && !loading && !!results.length && !matches.length &&
+            <p className="mb-3 text-sm muted">No matching locations have confirmed public access, usable equipment, and a verification record.</p>}
+          {reference && <p className="mb-3 text-sm muted">{distanceNotice}</p>}
+          {!loading && !error && !!matches.length && <button className="button mb-3" onClick={event=>openHelper(event,null)}>
+            {noClose?'Nothing close by? Explore travel options.':'Explore travel options'}
+          </button>}
           <ul className="space-y-2">
-            {sorted.map(({item,distance})=><li key={item.id}>
+            {shown.map(({item,distance})=><li key={item.id}>
               <button className={`w-full rounded-control border p-3 text-left ${selected===item.id?'border-brand bg-mint':'border-line bg-white hover:bg-canvas'}`}
                 onClick={()=>setSelected(item.id)} aria-pressed={selected===item.id}>
                 <span className="block font-bold">{item.name}</span>
@@ -93,12 +163,22 @@ export default function Public({request}: {request?: (category:Category)=>void})
                 <span className={`tag mt-2 ${item.verifiedOn?'':'unverified'}`}>{item.fixture && item.verifiedOn?'Simulated verification':item.verifiedOn?'Verification recorded':'Unverified'}</span>
                 {item.access!=='public' && <span className="tag unverified ml-2">{item.access==='restricted'?'Restricted access':'Public access unknown'}</span>}
                 {item.fixture && <span className="ml-2 text-xs muted">Illustrative demo equipment</span>}
-                {distance!==null && <span className="ml-2 text-xs muted">{Math.round(distance)} m straight-line</span>}
+                {distance!==null && <span className="ml-2 text-xs muted">Approx. distance {approxDistance(distance)} · {distanceBand(distance)}</span>}
               </button>
             </li>)}
           </ul>
+          {visible<sorted.length && <button className="button mt-3" onClick={()=>setVisible(value=>value+travel.visiblePageSize)}>Show more locations</button>}
         </section>
       </div>
+      {helper && !loading && !error && <Suspense fallback={<p role="status">Opening travel options…</p>}>
+        <TravelPanel key={JSON.stringify([context,helper.target,role])} category={category} query={query}
+          origin={reference} sites={sites} target={target} role={role} collect={collect} close={closeHelper}
+          chooseOrigin={()=>{setHelper(null);setPick(true);requestAnimationFrame(()=>pinControl.current?.focus());}}
+          signIn={()=>{
+            rememberTravel({category,query,origin:reference,target:helper.target});
+            location.assign(loginLink('resident','/'));
+          }}/>
+      </Suspense>}
       {request && <section className="panel flex flex-wrap items-center justify-between gap-4">
         <div><h2>Missing something nearby?</h2><p className="muted">Your request can inform future investment comparisons.</p></div>
         <button className="button primary" onClick={()=>request(category||item?.category||'pull-up')}>Request equipment nearby</button>

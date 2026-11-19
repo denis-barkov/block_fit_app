@@ -135,7 +135,7 @@ describe('connected Worker API and D1',()=>{
     expect(record.status).toBe(201);
     const {id:siteId}=await json<{id:string}>(record);
     const settings={...env};
-    Object.assign(env,{AI_ENABLED:'true',OPENAI_API_KEY:'test-only',AI_BUDGET_MICROUSD:'30000',
+    Object.assign(env,{AI_ENABLED:'true',OPENAI_MODEL:'gpt-6.2-sol',OPENAI_REASONING_EFFORT:'low',OPENAI_API_KEY:'test-only',AI_BUDGET_MICROUSD:'30000',
       AI_INPUT_MICROUSD_PER_MILLION:'1000000',AI_OUTPUT_MICROUSD_PER_MILLION:'1000000'});
     await env.DB.exec('UPDATE operations SET ai_frozen=0 WHERE id=1');
     const realFetch=globalThis.fetch;

@@ -97,14 +97,20 @@ it('derives the canonical URL from the owned Pages project and packages a privat
     vi.stubEnv('NODE_ENV','production');
     try {packageWorker(target,worker,workerOutput);}
     finally {vi.unstubAllEnvs();}
-    const prompt=readFileSync('prompts/investment-comparison/explain-investment-options.txt','utf8');
-    const packagedPrompt=readdirSync(workerOutput).find(name=>name.endsWith('-explain-investment-options.txt'));
-    expect(packagedPrompt).toBeDefined();
-    expect(readFileSync(join(workerOutput,packagedPrompt),'utf8')).toBe(prompt);
-    expect(readFileSync(join(workerOutput,'index.js'),'utf8')).toContain(packagedPrompt);
-    for(const folder of ['dist',pages.output]) {
-      for(const file of readdirSync(folder,{recursive:true,withFileTypes:true}).filter(entry=>entry.isFile())) {
-        expect(readFileSync(join(file.parentPath,file.name),'utf8')).not.toContain(prompt.split('\n')[0]);
+    for(const filename of [
+      'investment-comparison/explain-investment-options.txt',
+      'resident-travel/choose-destinations.txt',
+      'resident-travel/explore-destination.txt',
+    ]) {
+      const prompt=readFileSync('prompts/'+filename,'utf8');
+      const packagedPrompt=readdirSync(workerOutput).find(name=>name.endsWith('-'+filename.split('/').at(-1)));
+      expect(packagedPrompt).toBeDefined();
+      expect(readFileSync(join(workerOutput,packagedPrompt),'utf8')).toBe(prompt);
+      expect(readFileSync(join(workerOutput,'index.js'),'utf8')).toContain(packagedPrompt);
+      for(const folder of ['dist',pages.output]) {
+        for(const file of readdirSync(folder,{recursive:true,withFileTypes:true}).filter(entry=>entry.isFile())) {
+          expect(readFileSync(join(file.parentPath,file.name),'utf8')).not.toContain(prompt.split('\n')[0]);
+        }
       }
     }
     expect(JSON.parse(readFileSync(pages.path,'utf8'))).toMatchObject({

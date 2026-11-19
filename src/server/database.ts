@@ -1,3 +1,4 @@
+import { travel } from '../../config/travel';
 import { limits } from '../../config/settings';
 import type { Candidate, Demand, Equipment, Park, PublicEquipment, Scenario } from '../contracts';
 import { compare, type Comparison, type DemandOrigin } from './planning';
@@ -17,13 +18,15 @@ type CandidateRow = Omit<Candidate,'costs'|'fixture'> & { costs: string; fixture
 const candidate = (row: CandidateRow): Candidate => ({...row,costs:JSON.parse(row.costs),fixture:!!row.fixture});
 const usable = "e.visible=1 AND e.archived=0 AND e.access='public' AND e.condition='usable' AND e.verified_on IS NOT NULL";
 
-export async function inventory(db: D1Database, category: string | null, search: string) {
+export async function inventory(db: D1Database, category: string | null, search: string, after?:string, eligibleOnly=false) {
   const result = await rows<Omit<PublicEquipment,'park'|'fixture'> & { parkName: string | null; hours: string | null; cityMaintained:number|null; fixture:number }>(db,
     `SELECT e.id,e.name,e.category,e.lat,e.lng,e.condition,e.access,e.source,e.verified_on AS verifiedOn,
       e.fixture,p.name AS parkName,p.hours,p.city_maintained AS cityMaintained FROM equipment e LEFT JOIN parks p ON p.id=e.park_id AND p.archived=0
-      WHERE e.archived=0 AND e.visible=1 AND (? IS NULL OR e.category=?)
+      WHERE ${eligibleOnly?usable:"e.archived=0 AND e.visible=1"} AND (? IS NULL OR e.category=?)
       AND (instr(lower(e.name),lower(?))>0 OR instr(lower(p.name),lower(?))>0)
-      ORDER BY e.name,e.id LIMIT ?`, category,category,search,search,limits.inventory);
+      AND (? IS NULL OR e.id>?)
+      ORDER BY ${after===undefined?"e.name,e.id":"e.id"} LIMIT ?`, category,category,search,search,
+    after??null,after??null,after===undefined?limits.inventory:travel.pageSize);
   return result.map(({parkName,hours,cityMaintained,fixture,...equipment}) => ({
     ...equipment, fixture:!!fixture, park: parkName ? { name: parkName, hours: hours ?? '', cityMaintained:!!cityMaintained } : null,
   }));

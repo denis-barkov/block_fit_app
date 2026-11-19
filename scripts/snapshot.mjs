@@ -19,7 +19,7 @@ const columns={
   ai_day:'day attempts',
 };
 const publicTables=['parks','equipment','candidates','synthetic_demand'];
-const migration='0004_request_locations.sql';
+const migration='0005_resident_travel.sql';
 const legacyIds={parks:['demo-west','demo-east'],equipment:['demo-bars','demo-parallel','demo-bench'],candidates:['demo-a','demo-b','demo-c']};
 const {version}=project;
 
@@ -53,8 +53,9 @@ function validateRecord(table,row) {
 export async function restoreSnapshot(db,snapshot) {
   const legacy=snapshot?.version==='0.0.1' && snapshot.migration==='0002_pilot_operations.sql';
   const priorLocations=snapshot?.migration==='0003_demo_and_account_purpose.sql' && /^0\.0\.[2-6]$/.test(snapshot.version);
-  const current=snapshot?.migration===migration && [version,'0.1.0'].includes(snapshot.version);
-  if (!snapshot || (!legacy && (!(current || priorLocations) || ![0,1,2].includes(snapshot.demoVersion))) ||
+  const current=snapshot?.migration===migration && snapshot.version===version;
+  const priorTravel=snapshot?.migration==='0004_request_locations.sql' && /^0\.1\.[01]$/.test(snapshot.version);
+  if (!snapshot || (!legacy && (!(current || priorTravel || priorLocations) || ![0,1,2].includes(snapshot.demoVersion))) ||
     !['demo','private'].includes(snapshot.mode) || !Number.isSafeInteger(snapshot.spent) || snapshot.spent<0) {
     throw new Error('This snapshot version, schema or mode is incompatible.');
   }

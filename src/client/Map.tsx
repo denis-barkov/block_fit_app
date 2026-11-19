@@ -1,19 +1,20 @@
-import { useEffect,useRef,useState } from 'react';
+import { useEffect,useRef,useState,type RefObject } from 'react';
 import type { LngLatBoundsLike, Map as MapInstance, Marker } from 'maplibre-gl';
 import circle from '@turf/circle';
 import mapWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import { isInServiceArea, mapArea, pinOutsideServiceArea } from '../../config/map-area';
 import { pilot } from '../../config/settings';
 import type { Coordinate } from '../contracts';
+import {collectMapEvidence,type CollectEvidence} from './map-evidence';
 
 export type Pin = Coordinate & {
   id:string; label:string; kind:'equipment'|'candidate'|'synthetic'|'private'|'reference';
   covered?:boolean; short?:string; onSelect?:()=>void; onMove?:(point:Coordinate)=>void; selected?:boolean;
 };
-type Props={pins:Pin[]; overlays?:{point:Coordinate;radius:number}[]; onPick?:(point:Coordinate)=>void; label:string;overview?:boolean;initialCenter?:Coordinate};
+type Props={pins:Pin[]; overlays?:{point:Coordinate;radius:number}[]; onPick?:(point:Coordinate)=>void; label:string;overview?:boolean;initialCenter?:Coordinate;evidence?:RefObject<CollectEvidence|null>};
 const valid=(point:Coordinate)=>Number.isFinite(point.lat)&&Number.isFinite(point.lng);
 const extent = ({west,south,east,north}: typeof mapArea.cityOverview): LngLatBoundsLike => [[west,south],[east,north]];
-export default function MapView({pins,overlays=[],onPick,label,overview,initialCenter=pilot.center}: Props) {
+export default function MapView({pins,overlays=[],onPick,label,overview,initialCenter=pilot.center,evidence}: Props) {
   const container=useRef<HTMLDivElement>(null);
   const map=useRef<MapInstance|null>(null);
   const module=useRef<typeof import('maplibre-gl')|null>(null);
@@ -74,6 +75,12 @@ export default function MapView({pins,overlays=[],onPick,label,overview,initialC
     }).catch(()=>{if(mounted)setUnavailable(true);});
     return ()=>{mounted=false;clearTimeout(timer);map.current?.remove();map.current=null;};
   },[]);
+  useEffect(()=>{
+    const view=map.current;
+    if(!view || !evidence || !ready || unavailable) return;
+    evidence.current=(points,signal)=>collectMapEvidence(view,points,signal);
+    return ()=>{evidence.current=null;};
+  },[evidence,ready,unavailable]);
   useEffect(()=>{
     const view=map.current;
     const lib=module.current;

@@ -46,7 +46,7 @@ it('round-trips private data into fresh D1, excludes sessions and freezes AI wit
   await fresh.prepare('UPDATE ai_total SET spent=100 WHERE id=1').run();
   await expect(restoreSnapshot(fresh,{...snapshot,migration:'unknown'})).rejects.toThrow('incompatible');
   const before=await getComparison(db,scenario);
-  await restoreSnapshot(fresh,{...snapshot,version:'0.1.0'});
+  await restoreSnapshot(fresh,{...snapshot,version:'0.1.0',migration:'0004_request_locations.sql'});
   await expect(restoreSnapshot(fresh,snapshot)).rejects.toThrow('empty target');
   expect(await inventory(fresh,null,'')).toEqual(await inventory(db,null,''));
   expect(await getComparison(fresh,scenario)).toMatchObject({demandCount:before.demandCount,unmet:before.unmet,options:before.options});

@@ -1,4 +1,5 @@
-import distance from '@turf/distance';
+import { metres } from '../geo';
+export { metres } from '../geo';
 import { categories } from '../../config/settings';
 import { costKeys, upfrontKeys, type Candidate, type Coordinate, type Costs, type Scenario } from '../contracts';
 
@@ -6,9 +7,6 @@ export type DemandOrigin = Coordinate & { id: string; synthetic: boolean };
 export const levels = ['low', 'base', 'high'] as const;
 type Level = typeof levels[number];
 
-export function metres(a: Coordinate, b: Coordinate) {
-  return distance([a.lng,a.lat], [b.lng,b.lat], { units: 'meters' });
-}
 function sum(values: (number | null)[]) {
   return values.includes(null) ? null : values.reduce<number>((total, value) => total + (value ?? 0), 0);
 }

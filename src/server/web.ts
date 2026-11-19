@@ -11,6 +11,7 @@ export interface Env extends AuthConfig {
 
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
+  OPENAI_REASONING_EFFORT?: string;
   AI_BUDGET_MICROUSD?: string;
   AI_INPUT_MICROUSD_PER_MILLION?: string;
   AI_OUTPUT_MICROUSD_PER_MILLION?: string;

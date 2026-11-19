@@ -15,6 +15,6 @@ export const limits = {
   minPassword: 15, maxPassword: 128,
 };
 export const ai = {
-  model: 'gpt-5.4-mini', daily: 150, inputTokens: 2000, outputTokens: 1000,
+  daily: 150, inputTokens: 2000, outputTokens: 1000,
   cacheDays: 7, cacheEntries: 100, outputWords: 220, inputBytes: 12_000,
 };

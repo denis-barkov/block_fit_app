@@ -1,4 +1,13 @@
 import explainInvestmentOptions from '../../prompts/investment-comparison/explain-investment-options.txt';
+import chooseDestinations from '../../prompts/resident-travel/choose-destinations.txt';
+import exploreDestination from '../../prompts/resident-travel/explore-destination.txt';
+
+const templates = {
+  'explain-investment-options':explainInvestmentOptions,
+  'choose-destinations':chooseDestinations,
+  'explore-destination':exploreDestination,
+};
+
 
 type PromptValues = Readonly<Record<string, string | number>>;
 
@@ -21,9 +30,9 @@ export function renderPrompt(template: string, keys: readonly string[], values: 
 }
 
 export function loadPrompt(id: string, values: PromptValues) {
-  if (id !== 'explain-investment-options') throw new Error('Unknown prompt.');
+  if (!Object.hasOwn(templates,id)) throw new Error('Unknown prompt.');
   if (!Number.isSafeInteger(values.output_word_limit) || Number(values.output_word_limit) <= 0) {
     throw new Error('Invalid output word limit.');
   }
-  return renderPrompt(explainInvestmentOptions,['output_word_limit'],values);
+  return renderPrompt(templates[id as keyof typeof templates],['output_word_limit'],values);
 }

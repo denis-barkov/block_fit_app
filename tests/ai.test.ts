@@ -21,7 +21,7 @@ let db:D1Database;
 beforeAll(async()=>{
   proxy=await database();
   db=proxy.env.DB;
-  env={DB:db,AI_ENABLED:'true',OPENAI_API_KEY:'mock-only',AI_BUDGET_MICROUSD:'15000',
+  env={DB:db,AI_ENABLED:'true',OPENAI_MODEL:'gpt-6.2-sol',OPENAI_REASONING_EFFORT:'low',OPENAI_API_KEY:'mock-only',AI_BUDGET_MICROUSD:'15000',
     AI_INPUT_MICROUSD_PER_MILLION:'1000000',AI_OUTPUT_MICROUSD_PER_MILLION:'2000000',
     APP_ORIGIN:'http://127.0.0.1:8787',AUTH_SECRET:'synthetic test configuration secret',
     ASSETS:{fetch:()=>Promise.resolve(new Response('test assets')),connect:()=>{throw new Error('Unused');}} as Fetcher};
@@ -57,7 +57,7 @@ function provider({tokens=500,response=success,hold,failure=false}:{tokens?:numb
       return Response.json({input_tokens:tokens});
     }
     calls.push('generation');
-    expect(JSON.parse(body)).toMatchObject({max_output_tokens:ai.outputTokens,store:false,service_tier:'default',reasoning:{effort:'none'}});
+    expect(JSON.parse(body)).toMatchObject({max_output_tokens:ai.outputTokens,store:false,service_tier:'default',reasoning:{effort:'low'}});
     await hold?.();
     if(failure)throw new Error('Test timeout');
     return Response.json(response);

@@ -335,3 +335,58 @@ test('resident sign-in at the staff entry shows a role mismatch and survives mob
   await expect(page.getByRole('heading',{name:'Resident sign in'})).toBeVisible();
   await expect(page.getByRole('heading',{name:'My requests'})).toHaveCount(0);
 });
+
+test('public distance and copy work anonymously and a resident explicitly generates both helper modes',async({page})=>{
+  await page.route('https://tiles.openfreemap.org/styles/liberty',route=>route.fulfill({json:{
+    version:8,sources:{},layers:[{id:'background',type:'background',paint:{'background-color':'#dbece2'}}],
+  }}));
+  await page.addInitScript(()=>Object.defineProperty(navigator,'clipboard',{configurable:true,value:undefined}));
+  const {resident}=credentials();
+  let calls=0;
+  await page.route('**/api/resident/travel',async route=>{
+    calls++;
+    const input=route.request().postDataJSON();
+    expect(input.category).toBe('pull-up');
+    expect(input.origin.lat).toBeGreaterThan(40.5);
+    await route.fulfill({json:{cached:false,evidence:'unavailable',
+      options:[{id:input.target??'demo-bars',reason:'distance'}]}});
+  });
+  await page.setViewportSize({width:390,height:844});
+  await page.goto('/');
+  await page.getByLabel('Equipment type').selectOption('pull-up');
+  const chosen=page.getByRole('article',{name:'Selected equipment'});
+  await expect(chosen.getByRole('link',{name:'View pin in Google Maps'})).toHaveAttribute('href',/google\.com\/maps\/search/);
+  await chosen.getByRole('button',{name:'Copy location'}).click();
+  await expect(chosen.getByLabel('Select and copy this location')).toHaveValue(/illustrative demo location/);
+  await page.getByRole('button',{name:'Set reference pin'}).click();
+  const map=page.getByRole('region',{name:'Public equipment map'});
+  await map.locator('canvas').click({position:{x:155,y:157}});
+  await expect(page.getByText('Straight-line distance; the actual journey may be longer.')).toBeVisible();
+  await expect(page.getByRole('region',{name:'Equipment listings'}).getByText(/Approx\. distance/).first()).toBeVisible();
+  await page.getByRole('button',{name:/Explore travel options/}).click();
+  let panel=page.getByRole('dialog',{name:'Help me choose'});
+  await panel.getByRole('button',{name:/Sign in or create/}).click();
+  expect(page.url()).not.toMatch(/40\.7|-73\./);
+  await page.getByLabel('Email').fill(resident.email);
+  await page.getByLabel('Password',{exact:true}).fill(resident.password);
+  await page.getByRole('button',{name:'Sign in',exact:true}).press('Enter');
+  await expect(panel).toBeVisible();
+  expect(calls).toBe(0);
+  const shortlistButton=panel.getByRole('button',{name:'Generate suggestions',exact:true});
+  await shortlistButton.click();
+  await expect(panel.getByText('Compare this location using its straight-line distance from your pin.')).toBeVisible();
+  await noPageOverflow(page);
+  await panel.screenshot({path:test.info().outputPath('travel-phone.png')});
+  await panel.getByRole('button',{name:'Explore this location'}).click();
+  panel=page.getByRole('dialog',{name:'Explore this location'});
+  await expect(panel.getByText('Compare this location using its straight-line distance from your pin.')).toBeVisible();
+  expect(calls).toBe(1);
+  await panel.getByRole('button',{name:'Close dialog'}).click();
+  await page.setViewportSize({width:1280,height:900});
+  await page.getByRole('region',{name:'Equipment listings'}).getByRole('button',{name:/West court pull-up bars/}).click();
+  await chosen.getByRole('button',{name:'Explore this location'}).click();
+  await panel.getByRole('button',{name:'Generate suggestion',exact:true}).click();
+  await expect(panel.getByText('No landmarks found in the inspected map data.')).toBeVisible();
+  expect(calls).toBe(2);
+  await panel.screenshot({path:test.info().outputPath('travel-desktop.png')});
+});

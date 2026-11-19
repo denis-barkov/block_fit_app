@@ -2,9 +2,11 @@ import { Hono } from 'hono';
 import { isInServiceArea, pinOutsideServiceArea } from '../../config/map-area';
 import { locationInput, moveLocationInput, requestInput, type Coordinate, type SavedLocation } from '../contracts';
 import { requests, stmt } from './database';
+import { suggestTravel } from './resident-travel';
 import { body, changed, problem, type App } from './web';
 
 export const resident = new Hono<App>();
+resident.post('/travel',suggestTravel);
 resident.get('/', async c => {
   const owner = c.get('user').id;
   const [location, history] = await Promise.all([
