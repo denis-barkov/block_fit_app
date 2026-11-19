@@ -2,13 +2,14 @@ import {resolve} from 'node:path';
 import {existsSync,mkdirSync,renameSync} from 'node:fs';
 import {environment,persistPath,setupEnvironment,state,writeConfig} from './environment.mjs';
 import {build,localDev,migrate,packageWorker,withDB} from './local.mjs';
-import {localAccounts,printDemoPlan,seedDataset,seedLocalGoals,seedLocalTypeProposals} from './fixtures.mjs';
+import {localAccounts,printDemoPlan,seedDataset,seedDemoGoals,seedLocalTypeProposals} from './fixtures.mjs';
 import {maintainAccount,provisionAccounts} from './accounts.mjs';
 
 const [command,selected,confirmation]=process.argv.slice(2);
 try {
   if(command==='setup')setupEnvironment();
-  const env=environment(selected,{dryRun:['provision','deploy'].includes(command)&&confirmation==='yes'});
+  const env=environment(selected);
+  if(['release','recover'].includes(command)&&selected!=='prod') throw new Error('Use ENV=prod for this command.');
   if(command==='build') build(env);
   else if(command==='package') {
     if(selected!=='local') throw new Error('Use make deploy ENV=prod DRY_RUN=yes for the named production target.');
@@ -22,7 +23,7 @@ try {
     if (command==='dev') await localDev(env,path,persist);
     else if(command==='db-migrate') migrate(env,path,persist);
     else if(command==='seed-goals') {
-      await withDB(env,path,db=>seedLocalGoals(db,env),persist);
+      await withDB(env,path,seedDemoGoals,persist);
       console.log('Local goal presets checked. Staff edits and deletions were preserved.');
     }
     else if(command==='seed-proposals') {

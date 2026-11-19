@@ -4,7 +4,7 @@
 flowchart LR
     browser["Browser"]
     pages["Cloudflare Pages<br/>Assigned pages.dev hostname"]
-    worker["Private Cloudflare Worker<br/>Application, Better Auth and static assets"]
+    worker["Private Cloudflare Worker<br/>Application and Better Auth"]
     d1["Cloudflare D1"]
     openai["OpenAI API<br/>Goal assessment, staff explanations, resident travel suggestions"]
 
@@ -14,11 +14,11 @@ flowchart LR
     worker -.-> openai
 ```
 
-Pages accepts the canonical project hostname and forwards every application path to the Worker through its service binding. The original Pages URL remains the request URL. Better Auth uses that same origin and issues host-only, secure session cookies. The Pages code forwards permitted application headers, normalizes same-origin redirects to the Pages hostname, and rejects unexpected redirect origins. The Worker also rejects requests addressed to any other hostname. Canonical aliases, cookies, and headers are covered by local Workerd and Better Auth tests. Pages applies the browser response policy for framing, camera, microphone, geolocation, referrer information and MIME sniffing. The framing policy applies to documents served through Pages, including error pages.
+Pages serves versioned JavaScript, CSS, and branding directly from `/assets/*` and `/brand/*`. The Pages Function forwards API calls and application page routes through the private service binding. This keeps deep links, server-side sign-in redirects, and the branded 404 in one routing implementation. Better Auth receives the canonical Pages URL and issues host-only, secure session cookies. Pages forwards permitted application headers and accepts same-origin redirects. The Worker independently checks the canonical origin. Pages applies the browser response policy to both static assets and Function responses. [Pages Functions routing](https://developers.cloudflare.com/pages/functions/routing/)
 
-The backend config disables the `workers.dev` route and Worker version preview URLs. The Pages ingress rejects Pages preview and deployment aliases; the canonical `pages.dev` hostname is the supported public endpoint. Both the public interface and the staff interface use this origin. Cloudflare Pages binds the Worker by its service name internally.
+The backend config disables the `workers.dev` route and Worker version preview URLs. Pages aliases can serve static assets. The Function rejects API and page requests on aliases before calling the Worker. Residents and staff both use the canonical `pages.dev` origin. Cloudflare Pages binds the Worker by its service name internally.
 
-The canonical Pages origin serves the brand assets directly, including the home-screen manifest and link preview. If the private Worker is unavailable, browser navigations can render the branded Pages fallback with an error status. The production build uses the verified Pages origin for the share image URL. [Pages advanced mode](https://developers.cloudflare.com/pages/functions/advanced-mode/)
+If the private Worker is unavailable, browser navigations can render the branded Pages fallback with an error status. The production build uses the verified Pages origin for the share image URL. [Pages advanced mode](https://developers.cloudflare.com/pages/functions/advanced-mode/)
 
 The Make workflow manages one Pages project, Worker and D1 database in the selected Cloudflare account. The protected manifest links their identities. Deploying updates the private Worker first, verifies its public routes are off, then publishes the Pages ingress. The D1 suspension switch blocks service via Pages while retaining data. Destruction removes Pages first and offers a separate D1 retention choice. [Pages service bindings](https://developers.cloudflare.com/pages/functions/bindings/#service-bindings) · [Workers routing](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/)
 
@@ -30,4 +30,4 @@ A proposal holds the owner, submitted name and description, and the pending requ
 
 ## Program goals
 
-D1 stores shared, versioned goals with stable catalog IDs. The selected goal, filters, and order belong to the current staff view. Candidate records have optional date-only estimates. The comparison computes requirements and eligibility for each site and combination. The AI gateway sends qualitative assessment data with precomputed coverage and cost figures, then validates the complete option set and evidence references. Staff evaluation and Explain share the reservation and spending ledger. The gateway checks the comparison and goal version at reservation and settlement. Cached evaluations are reused across filters, and explanations are keyed to the exact view. [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
+D1 stores shared, versioned goals with stable catalog IDs. The selected goal, filters, and order belong to the current staff view. Candidate records have optional date-only estimates. The comparison computes requirements and eligibility for each site and combination. The AI gateway sends qualitative assessment data with precomputed coverage and cost figures, then validates the complete option set and evidence references. Staff evaluation and Explain share a per-account cooldown and prevent duplicate in-flight requests. The gateway checks the comparison and goal version at reservation and settlement. Cached evaluations are reused across filters, and explanations are keyed to the exact view. [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)

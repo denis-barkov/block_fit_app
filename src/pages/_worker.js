@@ -7,19 +7,13 @@ const publicHeaders = [
   'content-language', 'content-range', 'content-type', 'etag', 'last-modified',
   'vary',
 ];
-const browserHeaders = {
+export const browserHeaders = {
   'Content-Security-Policy':"frame-ancestors 'none'",
   'X-Frame-Options':'DENY',
   'Permissions-Policy':'camera=(), microphone=(), geolocation=()',
   'Referrer-Policy':'strict-origin-when-cross-origin',
   'X-Content-Type-Options':'nosniff',
 };
-
-function brandedAsset(response) {
-  const headers=new Headers(response.headers);
-  for(const [name,value] of Object.entries(browserHeaders))headers.set(name,value);
-  return new Response(response.body,{status:response.status,headers,encodeBody:'manual'});
-}
 
 function wantsPage(request,url) {
   return (request.method==='GET'||request.method==='HEAD')&&url.pathname!=='/api'&&!url.pathname.startsWith('/api/')&&
@@ -51,10 +45,6 @@ export default {
     if (url.origin !== env.APP_ORIGIN) {
       return new Response('Not found.', { status: 404, headers:{...browserHeaders,'Cache-Control':'no-store'} });
     }
-    if((request.method==='GET'||request.method==='HEAD')&&url.pathname.startsWith('/brand/')) {
-      return brandedAsset(await env.ASSETS.fetch(request));
-    }
-
     const requestHeaders = new Headers(request.headers);
     for (const name of forwarded) requestHeaders.delete(name);
     let upstream;

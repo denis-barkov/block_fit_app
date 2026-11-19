@@ -1,6 +1,58 @@
 import {randomUUID} from 'node:crypto';
 import {smokeCredentials} from './accounts.mjs';
 import {pilot,planning} from '../config/settings.ts';
+import {brandAssets} from '../config/app.ts';
+
+export async function checkPublicDeployment(env,alias,{transport=fetch}={}) {
+  const origin=env.APP_ORIGIN;
+  const request=(url,init)=>transport(url,{redirect:'manual',signal:AbortSignal.timeout(30_000),...init});
+  const navigation={headers:{Accept:'text/html'}};
+  const privateValues=[env.resourceName+'.',env.CLOUDFLARE_ACCOUNT_ID,env.databaseId,
+    env.AUTH_SECRET,env.OPENAI_API_KEY,env.CLOUDFLARE_API_TOKEN,env.CLOUDFLARE_TAG_API_TOKEN].filter(Boolean);
+  async function inspect(response) {
+    const visible=[...(response.headers.entries())].flat().join('\n')+'\n'+await response.text();
+    if(privateValues.some(value=>visible.includes(value)))throw new Error('Private deployment details appeared in a public response.');
+    return visible;
+  }
+  const home=await request(origin+'/',navigation);
+  if(!home.ok||!home.headers.get('content-type')?.includes('text/html'))throw new Error('The public Pages shell is unavailable.');
+  const html=await inspect(home);
+  const assets=[...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map(match=>match[1]);
+  if(!assets.length)throw new Error('The public shell does not reference the expected frontend assets.');
+  for(const path of [...assets,brandAssets.mark]) {
+    const asset=await request(origin+path);
+    if(!asset.ok||asset.headers.get('content-type')?.includes('text/html')||asset.headers.get('x-content-type-options')!=='nosniff') {
+      throw new Error('A static Pages asset or its response headers could not be verified.');
+    }
+    await inspect(asset);
+  }
+  const checks=[
+    ['/api/health',200],['/api/staff/goals',401],['/api/resident',401],
+    ['/api/nonexistent-release-check',404],
+  ];
+  for(const [path,status] of checks) {
+    const response=await request(origin+path,navigation);
+    if(response.status!==status || !response.headers.get('content-type')?.includes('application/json') ||
+      response.headers.get('cache-control')!=='no-store')throw new Error(`Unexpected public response at ${path}.`);
+    await inspect(response);
+  }
+  const forbidden=await request(origin+'/api/auth/sign-out',{method:'POST',headers:{Origin:'https://example.invalid'}});
+  if(forbidden.status!==403)throw new Error('Production accepted an untrusted mutation origin.');
+  await inspect(forbidden);
+  const missing=await request(origin+'/nonexistent-release-check',navigation);
+  if(missing.status!==404||!missing.headers.get('content-type')?.includes('text/html'))throw new Error('The public not-found page is unavailable.');
+  await inspect(missing);
+  if(alias) {
+    const preview=new URL(alias);
+    if(preview.protocol!=='https:'||!preview.hostname.endsWith('.'+new URL(origin).hostname)) {
+      throw new Error('Cloudflare returned an unexpected Pages deployment alias.');
+    }
+    const response=await request(preview.origin+'/api/health');
+    if(response.status!==404)throw new Error('The Pages deployment alias did not reject application API access.');
+    await inspect(response);
+  }
+  console.log('Canonical Pages routes, assets, API errors and origin checks passed.');
+}
 
 export async function smoke(env,db,{transport=fetch,readCredentials=smokeCredentials}={}) {
   const secure=env.APP_ORIGIN.startsWith('https:');

@@ -212,6 +212,14 @@ test('mobile registration preserves the selected category and persists the resid
   await page.getByRole('button',{name:'Sign out'}).click();
   await expect(page.getByRole('heading',{name:'Find outdoor fitness equipment.'})).toBeVisible();
 });
+
+test('password recovery is clear when the operator has no contact email',async({page})=>{
+  await page.route('**/api/config',route=>route.fulfill({json:{contact:null}}));
+  await page.goto('/login');
+  await page.getByRole('button',{name:'Forgot password?'}).click();
+  await expect(page.getByRole('main')).toContainText('Self-service password recovery is unavailable in this beta.');
+  await expect(page.getByRole('link',{name:'Contact us'})).toHaveCount(0);
+});
 test('staff can compare and download on desktop and manage inventory on mobile',async({page})=>{
   await page.route(mapArea.styleUrl,route=>route.fulfill({json:{
     version:8,sources:{},layers:[{id:'background',type:'background',paint:{'background-color':'#dbece2'}}],

@@ -7,7 +7,7 @@ import {appIdentity,brandAssets} from '../config/app.ts';
 import edge from '../src/pages/_worker.js';
 import {createAuth} from '../src/server/auth';
 import app from '../src/server/index';
-import {packagePages,verifiedPages} from '../scripts/pages.mjs';
+import {packagePages,scanPublicAssets,verifiedPages} from '../scripts/pages.mjs';
 import {writeConfig} from '../scripts/environment.mjs';
 import {packageWorker} from '../scripts/local.mjs';
 import {database} from './database';
@@ -79,10 +79,6 @@ it('uses a real Workerd HTTP service binding and sends only canonical public hea
   const api=await runtime.dispatchFetch(origin+'/api/offline',navigation);
   expect(api.status).toBe(503);
   expect(api.headers.get('Content-Type')).toMatch(/^text\/plain/);
-  const icon=await runtime.dispatchFetch(origin+brandAssets.mark);
-  expect(icon.headers.get('Content-Type')).toBe('image/svg+xml');
-  expect(await icon.text()).toContain('<svg');
-  expectBrowserHeaders(icon);
   const missing=await runtime.dispatchFetch(origin+'/missing',navigation);
   expect(missing.status).toBe(404);
   expect(missing.headers.get('Content-Type')).toBe('text/html');
@@ -114,10 +110,18 @@ it('keeps real Better Auth cookies host-only, forwards session cookies, and reje
   expect(cookies.every(line=>!/Domain=/i.test(line)&&!line.includes('workers.dev'))).toBe(true);
   const session=await front('/api/me',{headers:{Cookie:cookies.map(line=>line.split(';',1)[0]).join('; ')}});
   expect(await session.json()).toMatchObject({user:{role:'staff'}});
+  const settings=await front('/api/config');
+  expect(await settings.json()).toEqual({contact:null});
+  const missing=await front('/api/nonexistent-release-check',{headers:{Accept:'text/html'}});
+  expect(missing.status).toBe(404);
+  expect(missing.headers.get('Content-Type')).toMatch(/^application\/json/);
+  expect(missing.headers.get('Cache-Control')).toBe('no-store');
+  const spoofed=await front('/api/auth/sign-out',{method:'POST',headers:{Origin:untrusted,'X-Forwarded-Host':new URL(origin).host}});
+  expect(spoofed.status).toBe(403);
   expect((await app.request(untrusted+'/api/health',{},env)).status).toBe(404);
   const alias=await edge.fetch(new Request('https://preview.blockfit-demo.pages.dev/api/me'),{APP_ORIGIN:origin,BACKEND:{fetch:backend}});
   expect(alias.status).toBe(404);
-  expect(backend).toHaveBeenCalledTimes(3);
+  expect(backend).toHaveBeenCalledTimes(6);
 });
 
 it('derives the canonical URL from the owned Pages project and packages a private Worker',()=>{
@@ -132,7 +136,6 @@ it('derives the canonical URL from the owned Pages project and packages a privat
   const directory=mkdtempSync('.blockfit/pages-test-');
   try {
     const worker=writeConfig(target,{databaseId:'00112233-0000-4000-8000-aabbccddeeff',directory});
-    const pages=packagePages(target,directory);
     const config=JSON.parse(readFileSync(worker,'utf8'));
     expect(config).toMatchObject({workers_dev:false,preview_urls:false,vars:{APP_ORIGIN:target.APP_ORIGIN}});
     expect(config.routes).toBeUndefined();
@@ -140,6 +143,7 @@ it('derives the canonical URL from the owned Pages project and packages a privat
     vi.stubEnv('NODE_ENV','production');
     try {packageWorker(target,worker,workerOutput);}
     finally {vi.unstubAllEnvs();}
+    const pages=packagePages(target,directory);
     for(const file of ['dist/index.html',join(pages.output,'index.html')]) {
       const html=readFileSync(file,'utf8');
       expect(html).toContain(`<title>${appTitleHTML}</title>`);
@@ -190,6 +194,11 @@ it('derives the canonical URL from the owned Pages project and packages a privat
     expect(JSON.parse(readFileSync(pages.path,'utf8'))).toMatchObject({
       services:[{binding:'BACKEND',service:env.resourceName}],vars:{APP_ORIGIN:target.APP_ORIGIN},
     });
-    expect(JSON.parse(readFileSync(join(pages.output,'_routes.json'),'utf8')).include).toEqual(['/*']);
+    expect(JSON.parse(readFileSync(join(pages.output,'_routes.json'),'utf8'))).toEqual({
+      version:1,include:['/*'],exclude:['/assets/*','/brand/*'],
+    });
+    expect(readFileSync(join(pages.output,'_headers'),'utf8')).toContain('/assets/*\n  Content-Security-Policy:');
+    expect(readdirSync(join(pages.output,'assets'))).toEqual(readdirSync('dist/assets'));
+    expect(()=>scanPublicAssets(pages.output,{...target,AUTH_SECRET:'BlockFit NYC'})).toThrow('Unexpected private material');
   } finally {rmSync(directory,{recursive:true,force:true});}
 });

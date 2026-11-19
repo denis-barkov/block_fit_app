@@ -120,8 +120,10 @@ export function AuthForm({onUser,contact,registration=true}: {onUser:(user:User)
     });
   }
   if (mode==='help') return <div className="space-y-3">
-    <p>Contact us and include your login. Never send your password.</p>
-    {contact ? <a className="button primary" href={`mailto:${contact}`}>Contact us</a> : <p className="muted">Ask your demonstration operator for help.</p>}
+    {contact ? <>
+      <p>Contact us and include your login. Never send your password.</p>
+      <a className="button primary" href={`mailto:${contact}`}>Contact us</a>
+    </> : <p>Self-service password recovery is unavailable in this beta. Ask your demonstration operator for help.</p>}
     <button className="button ml-2" onClick={()=>setMode('in')}>Back to sign in</button>
   </div>;
   return <form key={mode} onSubmit={submit} className="space-y-3">

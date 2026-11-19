@@ -8,6 +8,7 @@ import {setPassword} from '../scripts/accounts.mjs';
 import {createSnapshot,restoreSnapshot} from '../scripts/snapshot.mjs';
 import {applyTags,cloudflare,CloudflareError,validateAccount} from '../scripts/cloudflare.mjs';
 import {remoteDatabase} from '../scripts/remote-d1.mjs';
+import {migrationState,recoverRelease} from '../scripts/release.mjs';
 
 const origin='http://127.0.0.1:8787';
 const config={APP_ORIGIN:origin,AUTH_SECRET:crypto.randomUUID()+crypto.randomUUID()};
@@ -21,6 +22,27 @@ beforeAll(async()=>{
 });
 afterAll(async()=>{
   await Promise.all([source?.dispose(),target?.dispose()]);
+});
+
+it('recognizes a fresh release target and refuses code recovery across schema versions',async()=>{
+  const fresh=await database(0);
+  try {
+    const db=fresh.env.DB;
+    expect(await migrationState(db)).toMatchObject({applied:[],populated:false});
+    await db.prepare('CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY,name TEXT NOT NULL)').run();
+    await db.prepare('INSERT INTO d1_migrations VALUES(1,?)').bind('0001_schema.sql').run();
+    expect(await migrationState(db)).toMatchObject({applied:['0001_schema.sql'],populated:true});
+    const pagesDeployment='00112233-0000-4000-8000-aabbccddeeff';
+    const workerVersion='00223344-0000-4000-8000-aabbccddeeff';
+    const call=vi.fn();
+    const prompt=vi.fn();
+    const record={lastVerified:{pagesDeployment,workerVersion,migrations:[]}};
+    await expect(recoverRelease(call,db,{},record,[pagesDeployment,workerVersion],prompt)).rejects.toThrow('migration level');
+    expect(call).not.toHaveBeenCalled();
+    expect(prompt).not.toHaveBeenCalled();
+    await db.prepare('UPDATE d1_migrations SET name=?').bind('foreign.sql').run();
+    await expect(migrationState(db)).rejects.toThrow('recognized migration history');
+  } finally {await fresh.dispose();}
 });
 
 it('round-trips private data into fresh D1, excludes sessions and preserves historical AI usage',async()=>{

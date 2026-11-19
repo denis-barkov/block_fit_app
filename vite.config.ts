@@ -5,11 +5,19 @@ import { brandAssets } from './config/app.ts';
 
 export default defineConfig({
   envDir: false,
+  build: { sourcemap: false },
   plugins: [tailwind(), {
     name: 'app-html',
     transformIndexHtml: html=>html.replace('%APP_NAME%',()=>appTitleHTML)
       .replace('<!-- APP_HEAD -->',()=>publicHead(process.env.BLOCKFIT_PUBLIC_ORIGIN)),
-    generateBundle() {
+    generateBundle(_options,bundle) {
+      // The prebuilt MapLibre worker arrives through a URL import and retains its vendor map comment.
+      for(const asset of Object.values(bundle)) {
+        if(asset.type==='asset' && /^assets\/maplibre-gl-worker-.+\.mjs$/.test(asset.fileName)) {
+          const source=typeof asset.source==='string'?asset.source:new TextDecoder().decode(asset.source);
+          asset.source=source.replace(/^\s*\/\/[#@]\s*sourceMappingURL=.+$/gm,'');
+        }
+      }
       this.emitFile({type:'asset',fileName:brandAssets.manifest.slice(1),source:brandManifest()});
     },
   }],

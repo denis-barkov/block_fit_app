@@ -31,7 +31,7 @@ export function setupEnvironment() {
     }
   }
 }
-export function environment(selected,{dryRun=false}={}) {
+export function environment(selected) {
   if(selected!=='local'&&selected!=='prod') throw new Error('Select ENV=local or ENV=prod explicitly.');
   const override=readEnv('.env.'+selected);
   if(sharedModelSettings.some(key=>Object.hasOwn(override,key))) {
@@ -54,9 +54,9 @@ export function environment(selected,{dryRun=false}={}) {
   }
   const resourceName=[env.PROJECT_NAME,selected,env.DEPLOYMENT_SUFFIX].filter(Boolean).join('-');
   if (selected==='prod' && (!/^[0-9a-f]{32}$/i.test(env.CLOUDFLARE_ACCOUNT_ID) ||
-      (!dryRun && !env.CONTACT_EMAIL) || !env.PAGES_PROJECT_NAME ||
+      !env.PAGES_PROJECT_NAME ||
       (origin && (origin.protocol!=='https:' || origin.port || !/^[a-z0-9][a-z0-9-]*\.pages\.dev$/.test(origin.hostname))))) {
-    throw new Error('Production requires a valid Cloudflare account and Pages project name, plus a recovery email for live commands. If set, APP_ORIGIN must be the HTTPS pages.dev origin.');
+    throw new Error('Production requires a valid Cloudflare account and Pages project name. If set, APP_ORIGIN must be the HTTPS pages.dev origin.');
   }
   if(/^gpt-6\.2-(sol|astra)(?:-|$)/.test(env.OPENAI_MODEL) && env.OPENAI_REASONING_EFFORT==='none') {
     throw new Error('GPT-6.2 Sol and Astra require reasoning effort of low or higher.');

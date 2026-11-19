@@ -104,10 +104,9 @@ export async function seedLocalTypeProposals(db,env,dir) {
     ON CONFLICT DO NOTHING`).bind(id,owner,name,typeNameKey(name),description,now,id,pilot.center.lat,pilot.center.lng,typeNameKey(name))));
 }
 
-export async function seedLocalGoals(db,env) {
-  if(env.DEPLOYMENT!=='local') throw new Error('Goal presets are local only.');
+export async function seedDemoGoals(db) {
   if(await db.prepare(versionQuery).first('demo_version')!==demoVersion) {
-    throw new Error('Install the current local demo dataset before adding goal examples.');
+    throw new Error('Install the current demo dataset before adding goal examples.');
   }
   const first=demoProgramGoals[0].id;
   const pristine=safe=>Object.entries(safe).map(([key])=>`${key} IS ?`).join(' AND ');
