@@ -19,7 +19,9 @@
 }
 @layer components {
   .site-header :focus-visible { outline-color:var(--color-mint); }
-  .site-header nav a[aria-current=page] { @apply underline decoration-2 underline-offset-4; }
+  .site-header nav a { @apply decoration-1 underline-offset-4 hover:text-mint; }
+  .site-header nav a[aria-current=page] { @apply underline; }
+  .site-header nav .workspace-link { @apply inline-flex items-center gap-1.5 py-2 text-mint hover:text-white hover:underline; }
   .shell { max-width:var(--page-width); @apply mx-auto px-4 md:px-8; }
   .panel { @apply rounded-card border border-line bg-paper p-4 shadow-card md:p-6 min-w-0; }
   .button { @apply inline-flex min-h-11 items-center justify-center rounded-control border border-line bg-white px-4 py-2 text-sm font-bold text-ink hover:bg-canvas; transition:background var(--motion-fast); }

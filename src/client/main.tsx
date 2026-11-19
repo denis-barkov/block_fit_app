@@ -1,5 +1,6 @@
 import { lazy,Suspense,useEffect,useRef,useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { ArrowRightLeft } from 'lucide-react';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './styles.css';
 import { appIdentity, brandAssets } from '../../config/app';
@@ -121,13 +122,17 @@ function App() {
               {user.purpose!=='automated-test' && <a className="py-2" href={staffInventoryPage} aria-current={path===staffInventoryPage?'page':undefined}>Manage inventory</a>}
               <a className="py-2" href={staffCatalogPage} aria-current={path===staffCatalogPage?'page':undefined}>Equipment types</a>
             </>}
-            <a className="py-2" href="/">View public site</a>
+            <a className="workspace-link" href="/">
+              <ArrowRightLeft className="action-icon" aria-hidden="true"/> View public site
+            </a>
           </>:<>
             <a href="/" className="py-2" aria-current={path==='/'?'page':undefined}>Explore equipment</a>
             {user===null && <a className="py-2" href={residentLogin} aria-current={path===residentLogin?'page':undefined}>Sign in / Register</a>}
             {user?.role==='resident' &&
               <a className="py-2" href={residentRequests} aria-current={path===residentRequests?'page':undefined}>My requests</a>}
-            {user?.role==='staff' && <a className="py-2" href={staffHome}>Return to City workspace</a>}
+            {user?.role==='staff' && <a className="workspace-link" href={staffHome}>
+              <ArrowRightLeft className="action-icon" aria-hidden="true"/> Return to City workspace
+            </a>}
           </>}
           {account}
         </nav>
