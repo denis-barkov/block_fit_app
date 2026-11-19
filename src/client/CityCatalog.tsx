@@ -2,7 +2,7 @@ import { Check, Pencil, Plus } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { catalogLimits } from '../../config/settings';
 import { matchingTypes, typeName, typeNameKey, type EquipmentType, type StaffEquipmentType, type TypeProposal } from '../contracts';
-import { api, Categories, Feedback, Field, InfoHint, message, Modal, useAction } from './common';
+import { api, Categories, Feedback, Field, InfoHint, message, Modal, useAction, useTransientNotice } from './common';
 
 type Page<T>={items:T[];next:number|null};
 type Decision='create'|'match'|'reject';
@@ -50,7 +50,7 @@ function Types({types,refreshTypes}: {types:EquipmentType[];refreshTypes:()=>Pro
   const [status,setStatus]=useState('all');
   const [offset,setOffset]=useState(0);
   const [editor,setEditor]=useState<Editor|null>(null);
-  const [notice,setNotice]=useState('');
+  const [notice,setNotice]=useTransientNotice();
   const {result,error,reload}=usePage<StaffEquipmentType>('/staff/types?'+new URLSearchParams({q,status,offset:String(offset)}));
   async function save(data:TypeChanges,type?:StaffEquipmentType) {
     await api(type?`/staff/types/${type.id}`:'/staff/types',type?'PUT':'POST',data);
@@ -164,7 +164,7 @@ function Proposals({types,refreshTypes}: {types:EquipmentType[];refreshTypes:()=
   const [status,setStatus]=useState<TypeProposal['status']>('pending');
   const [offset,setOffset]=useState(0);
   const [selected,select]=useState<QueueItem>();
-  const [notice,setNotice]=useState('');
+  const [notice,setNotice]=useTransientNotice();
   const {result,error,reload}=usePage<QueueItem>('/staff/proposals?'+new URLSearchParams({status,offset:String(offset)}));
   return <section className="panel space-y-4" aria-labelledby="proposals-heading">
     <InfoHint label="About type review" content={<p>Reviewing a proposal changes the resident’s request status. Installation, feasibility and funding are separate decisions.</p>}>

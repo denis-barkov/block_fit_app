@@ -1,4 +1,5 @@
 export const defaultCategory = 'pull-up';
+export const feedback = { confirmationMs:10_000 };
 export const catalogLimits = {nameMin:2,nameMax:80,description:500,reason:240,pending:5,daily:10,page:50,matches:5};
 const demoNeighborhood = 'Forest Hills';
 export const pilot = {

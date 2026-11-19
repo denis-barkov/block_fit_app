@@ -1,6 +1,6 @@
 import { Info } from 'lucide-react';
 import { useEffect,useId,useRef,useState, type FormEvent, type ReactNode } from 'react';
-import { defaultCategory, limits } from '../../config/settings';
+import { defaultCategory, feedback, limits } from '../../config/settings';
 import type { Coordinate, EquipmentType } from '../contracts';
 
 export interface User { id:string; name:string; email:string; role:'staff'|'resident'; purpose?:string|null }
@@ -16,10 +16,19 @@ export async function api<T>(path: string, method = 'GET', data?: unknown): Prom
   return (response.headers.get('Content-Type')?.includes('application/json') ? response.json() : response.text()) as Promise<T>;
 }
 export const message = (error: unknown) => error instanceof Error ? error.message : 'Something went wrong. Try again.';
+export function useTransientNotice() {
+  const [notice,setNotice]=useState<{text:string}>();
+  useEffect(()=>{
+    if(!notice)return;
+    const timeout=setTimeout(()=>setNotice(undefined),feedback.confirmationMs);
+    return ()=>clearTimeout(timeout);
+  },[notice]);
+  return [notice?.text??'',(text:string)=>setNotice(text?{text}:undefined)] as const;
+}
 export function useAction() {
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState('');
-  const [status,setStatus] = useState('');
+  const [status,setStatus] = useTransientNotice();
   const running = useRef(false);
   async function run(action: () => Promise<void>, success = '') {
     if (running.current) return;

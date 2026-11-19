@@ -11,11 +11,11 @@ export type Pin = Coordinate & {
   id:string; label:string; kind:'equipment'|'candidate'|'synthetic'|'private'|'reference';
   covered?:boolean; short?:string; onSelect?:()=>void; onMove?:(point:Coordinate)=>void; selected?:boolean;
 };
-type Props={pins:Pin[]; overlays?:{point:Coordinate;radius:number}[]; onPick?:(point:Coordinate)=>void; label:string;overview?:boolean;initialCenter?:Coordinate;evidence?:RefObject<CollectEvidence|null>};
+type Props={pins:Pin[]; overlays?:{point:Coordinate;radius:number}[]; onPick?:(point:Coordinate)=>void; label:string;overview?:boolean;initialCenter?:Coordinate;focusPoint?:Coordinate;evidence?:RefObject<CollectEvidence|null>};
 const valid=(point:Coordinate)=>Number.isFinite(point.lat)&&Number.isFinite(point.lng);
 const extent = ({west,south,east,north}: typeof mapArea.cityOverview): LngLatBoundsLike => [[west,south],[east,north]];
 const overviewOptions={padding:mapArea.fitPadding,maxZoom:mapArea.overviewMaxZoom,duration:0};
-export default function MapView({pins,overlays=[],onPick,label,overview,initialCenter=pilot.center,evidence}: Props) {
+export default function MapView({pins,overlays=[],onPick,label,overview,initialCenter=pilot.center,focusPoint,evidence}: Props) {
   const container=useRef<HTMLDivElement>(null);
   const map=useRef<MapInstance|null>(null);
   const module=useRef<typeof import('maplibre-gl')|null>(null);
@@ -76,6 +76,12 @@ export default function MapView({pins,overlays=[],onPick,label,overview,initialC
     }).catch(()=>{if(mounted)setUnavailable(true);});
     return ()=>{mounted=false;clearTimeout(timer);map.current?.remove();map.current=null;};
   },[]);
+  useEffect(()=>{
+    const view=map.current;
+    if(!view||!ready||unavailable||!focusPoint||!valid(focusPoint))return;
+    view.jumpTo({center:[focusPoint.lng,focusPoint.lat],zoom:Math.max(view.getZoom(),mapArea.initialZoom)});
+    setOutside(false);setRegional(false);
+  },[focusPoint,ready,unavailable]);
   useEffect(()=>{
     const view=map.current;
     if(!view || !evidence || !ready || unavailable) return;

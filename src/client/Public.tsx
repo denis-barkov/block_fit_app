@@ -5,7 +5,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, t
 import { defaultCategory, limits, pilot } from '../../config/settings';
 import type { Category, Coordinate, EquipmentType, PublicEquipment } from '../contracts';
 import { travel } from '../../config/travel';
-import { approxDistance, byDistance, distanceBand, distanceNotice, eligible, type Observations } from '../travel';
+import { approxDistance, byDistance, distanceBand, distanceNotice, eligible, reasonText, type Observations, type TravelSuggestion } from '../travel';
 import type { CollectEvidence } from './map-evidence';
 import { loginLink } from '../routes';
 import { rememberTravel, takeTravel } from './travel-return';
@@ -29,10 +29,13 @@ export default function Public({request,role,types}: {request?: (category:Catego
   const [retry,setRetry]=useState(0);
   const [visible,setVisible]=useState(travel.visiblePageSize);
   const [helper,setHelper]=useState<{target:string|null}|null>(returning?{target:returning.target}:null);
+  const [suggestion,setSuggestion]=useState<TravelSuggestion&{context:string}>();
+  const [focusPoint,setFocusPoint]=useState<Coordinate>();
   const [inventoryVersion,setInventoryVersion]=useState(0);
   const evidence=useRef<CollectEvidence|null>(null);
   const opener=useRef<HTMLElement|null>(null);
   const pinControl=useRef<HTMLButtonElement|null>(null);
+  const mapHeading=useRef<HTMLHeadingElement|null>(null);
   const context=JSON.stringify([category,query,reference,inventoryVersion]);
   const observations=useRef<{context:string;entries:Map<string,Observations>}|null>(null);
   const savedPin=useAction();
@@ -82,6 +85,18 @@ export default function Public({request,role,types}: {request?: (category:Catego
     opener.current=event.currentTarget;
     setHelper({target:id});
   }
+  function showSuggestion(option:TravelSuggestion) {
+    const index=sorted.findIndex(({item})=>item.id===option.id);
+    if(index<0)return;
+    const {lat,lng}=sorted[index].item;
+    setSelected(option.id);setSuggestion({...option,context});
+    setVisible(count=>Math.max(count,index+1));
+    setFocusPoint({lat,lng});setPick(false);setHelper(null);
+    requestAnimationFrame(()=>{
+      mapHeading.current?.focus({preventScroll:true});
+      mapHeading.current?.scrollIntoView({block:'start'});
+    });
+  }
   async function collect(points:Parameters<CollectEvidence>[0],signal:AbortSignal) {
     if(observations.current?.context!==context) observations.current={context,entries:new Map()};
     const cache=observations.current.entries;
@@ -112,7 +127,7 @@ export default function Public({request,role,types}: {request?: (category:Catego
       <div className="split">
         <section className="panel space-y-4 xl:col-start-2 xl:row-start-1" aria-labelledby="neighborhood-map">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 id="neighborhood-map" className="text-lg md:text-xl">Neighborhood map</h2>
+            <h2 id="neighborhood-map" ref={mapHeading} tabIndex={-1} className="text-lg md:text-xl">Neighborhood map</h2>
             <div className="flex flex-wrap gap-2">
               <button ref={pinControl} className="button gap-2 max-md:px-2.5" aria-pressed={pick} onClick={()=>setPick(!pick)}>
                 <MapPin className="action-icon hidden md:block" aria-hidden="true"/> {pick?'Cancel pin selection':'Set reference pin'}
@@ -127,7 +142,7 @@ export default function Public({request,role,types}: {request?: (category:Catego
           </div>
           <Feedback error={savedPin.error}/>
           {pick && <p role="status" className="text-sm muted">Click the map to sort listings by approximate straight-line distance.</p>}
-          <Suspense fallback={<p>Loading map…</p>}><MapView label="Public equipment map" evidence={evidence} initialCenter={returning?.origin??undefined}
+          <Suspense fallback={<p>Loading map…</p>}><MapView label="Public equipment map" evidence={evidence} initialCenter={returning?.origin??undefined} focusPoint={focusPoint}
             onPick={pick?point=>{setReference(point);setPick(false);}:undefined}
             pins={[...markers.map((row,index)=>({...row,label:row.name,kind:'equipment' as const,short:String(index+1),
               selected:row.id===selected,onSelect:()=>{if(!pick)setSelected(row.id);}})),
@@ -137,6 +152,7 @@ export default function Public({request,role,types}: {request?: (category:Catego
             <InfoHint label="About Maps links" content={<p>{mapsHandoff}</p>}><h3>{item.name}</h3></InfoHint>
             <p className="text-sm muted">{item.categoryName} · {item.park?.name||'Standalone equipment'}</p>
             {!item.categoryActive && <p className="text-sm muted">This type is unavailable for new requests and travel suggestions.</p>}
+            {suggestion?.id===item.id&&suggestion.context===context&&<p className="text-sm muted">{reasonText[suggestion.reason]}</p>}
             <dl className="my-4 grid gap-3 text-sm sm:grid-cols-2">
               {Object.entries({Verification:item.fixture&&item.verifiedOn?`Simulated · ${item.verifiedOn}`:item.verifiedOn||'Unverified',Condition:item.condition,
                 'Public access':item.access,Hours:item.park?.hours||'Unknown',Source:item.source||'Unknown'})
@@ -183,7 +199,7 @@ export default function Public({request,role,types}: {request?: (category:Catego
       </div>
       {helper && !loading && !error && <Suspense fallback={<p role="status">Opening travel options…</p>}>
         <TravelPanel key={JSON.stringify([context,helper.target,role])} category={unavailable?'':category} query={query}
-          origin={reference} sites={sites} target={target} role={role} collect={collect} close={closeHelper}
+          origin={reference} sites={sites} target={target} role={role} collect={collect} close={closeHelper} onChoose={showSuggestion}
           chooseOrigin={()=>{setHelper(null);setPick(true);requestAnimationFrame(()=>pinControl.current?.focus());}}
           signIn={()=>{
             rememberTravel({category,query,origin:reference,target:helper.target});
