@@ -23,7 +23,7 @@ const columns={
   ai_day:'day attempts',
 };
 const publicTables=['equipment_types','parks','equipment','candidates','synthetic_demand'];
-const migration='0007_program_goals.sql';
+const migration='0008_ai_cooldowns.sql';
 const legacyIds={parks:['demo-west','demo-east'],equipment:['demo-bars','demo-parallel','demo-bench'],candidates:['demo-a','demo-b','demo-c']};
 const {version}=project;
 
@@ -67,7 +67,8 @@ function validateRecord(table,row) {
 export async function restoreSnapshot(db,snapshot) {
   const legacy=snapshot?.version==='0.0.1' && snapshot.migration==='0002_pilot_operations.sql';
   const priorLocations=snapshot?.migration==='0003_demo_and_account_purpose.sql' && /^0\.0\.[2-6]$/.test(snapshot.version);
-  const current=snapshot?.migration===migration && [version,'0.4.0','0.4.1'].includes(snapshot.version);
+  const current=(snapshot?.migration===migration && snapshot.version===version)
+    || (snapshot?.migration==='0007_program_goals.sql' && /^0\.4\.[0-2]$/.test(snapshot.version));
   const priorGoals=snapshot?.migration==='0006_equipment_catalog.sql' && snapshot.version==='0.3.0';
   const priorCatalog=snapshot?.migration==='0005_resident_travel.sql' && /^0\.2\.[0-2]$/.test(snapshot.version);
   const priorTravel=snapshot?.migration==='0004_request_locations.sql' && /^0\.1\.[01]$/.test(snapshot.version);
@@ -170,7 +171,7 @@ export async function dataCommand(command,env,config,persist,[filename,selectedM
     const snapshot=JSON.parse(readFileSync(path,'utf8'));
     migrate(env,config,persist);
     await useDB(db=>restoreSnapshot(db,snapshot));
-    console.log('Snapshot restored and validated. The target stays suspended until resume; AI stays frozen.');return;
+    console.log('Snapshot restored and validated. The target stays suspended until resume.');return;
   }
   await useDB(db=>db.prepare('UPDATE operations SET suspended=? WHERE id=1').bind(Number(command==='suspend')).run());
   console.log(command==='suspend'?'Application suspended.':'Application resumed.');

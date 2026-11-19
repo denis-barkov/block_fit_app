@@ -47,7 +47,10 @@ export function useGoalReview(goal:Goal|undefined,reference:Ref|null) {
     try {
       const review=await api<GoalReview>(`/staff/goals/${evaluate?'evaluate':'preview'}`,'POST',
         {...reference,goal:{id:goal.id,version:goal.version}});
-      if(active.current===key&&sequence.current===request)setState({key,pending:false,review});
+      if(active.current===key&&sequence.current===request)setState(previous=>({
+        key,pending:false,review:evaluate||previous?.review?.evaluationKey===review.evaluationKey
+          ?review:{...review,evaluation:null,evaluationKey:null},
+      }));
     } catch(error) {
       if(active.current===key&&sequence.current===request)setState({key,pending:false,error:message(error)});
     }
@@ -59,7 +62,11 @@ export function useGoalReview(goal:Goal|undefined,reference:Ref|null) {
     window.addEventListener('focus',update);
     return ()=>window.removeEventListener('focus',update);
   },[key,status?.pending]);
-  return {status,submit};
+  function reset() {
+    sequence.current++;
+    setState(undefined);
+  }
+  return {status,submit,reset};
 }
 
 type Programs=ReturnType<typeof useProgramGoals>;
@@ -209,21 +216,23 @@ export function GoalStatus({goal,review,view,filter,order,budget,disabled,onFilt
       <strong>Needs clarification.</strong> {review.review.evaluation.clarification}
     </p>}
     {review?.error&&<Feedback error={`Goal evaluation unavailable. ${review.error}`}/>}
-    <div className="flex flex-wrap items-end gap-2">
-      <Field label="Filter by goal fit"><select value={filter} onChange={event=>onFilter(event.target.value as GoalFilter)}>
-        {Object.entries(goalFilterLabels).map(([value,label])=><option key={value} value={value}>{label}</option>)}
-      </select></Field>
-      <Field label="Option ordering"><select value={order} onChange={event=>onOrder(event.target.value as GoalOrder)}>
-        <option value="baseline">Ordinary comparison</option><option value="fit">Goal fit</option>
-      </select></Field>
-    </div>
-    <div className="flex flex-wrap items-center gap-2">
-      {goalBuckets.filter(key=>view.counts[key]>0).map(key=><button key={key} className="button" type="button"
-        aria-pressed={filter===key} onClick={()=>onFilter(filter===key?'all':key)}>{view.counts[key]} {bucketLabels[key]}</button>)}
-      <InfoHint label="What goal status counts mean" content={<p>Each option counts once. A failed requirement or eligibility check puts it in Excluded. Unknown checks or insufficient evidence need information. A match is eligible and has Strong or Partial fit.</p>}>
-        <span className="text-sm font-semibold">{view.shown} shown · {view.hidden} hidden</span>
-      </InfoHint>
-    </div>
+    {!!review?.review?.evaluation?.assessments.length&&<>
+      <div className="flex flex-wrap items-end gap-2">
+        <Field label="Filter by goal fit"><select value={filter} onChange={event=>onFilter(event.target.value as GoalFilter)}>
+          {Object.entries(goalFilterLabels).map(([value,label])=><option key={value} value={value}>{label}</option>)}
+        </select></Field>
+        <Field label="Option ordering"><select value={order} onChange={event=>onOrder(event.target.value as GoalOrder)}>
+          <option value="baseline">Ordinary comparison</option><option value="fit">Goal fit</option>
+        </select></Field>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {goalBuckets.filter(key=>view.counts[key]>0).map(key=><button key={key} className="button" type="button"
+          aria-pressed={filter===key} onClick={()=>onFilter(filter===key?'all':key)}>{view.counts[key]} {bucketLabels[key]}</button>)}
+        <InfoHint label="What goal status counts mean" content={<p>Each option counts once. A failed requirement or eligibility check puts it in Excluded. Unknown checks or insufficient evidence need information. A match is eligible and has Strong or Partial fit.</p>}>
+          <span className="text-sm font-semibold">{view.shown} shown · {view.hidden} hidden</span>
+        </InfoHint>
+      </div>
+    </>}
   </section>;
 }
 

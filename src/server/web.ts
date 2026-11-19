@@ -12,9 +12,6 @@ export interface Env extends AuthConfig {
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
   OPENAI_REASONING_EFFORT?: string;
-  AI_BUDGET_MICROUSD?: string;
-  AI_INPUT_MICROUSD_PER_MILLION?: string;
-  AI_OUTPUT_MICROUSD_PER_MILLION?: string;
 }
 export type App = { Bindings: Env; Variables: { user: {id:string; name:string; email:string; role:string; purpose?:string|null}; requestId:string } };
 export function problem(status: 400|401|403|404|409|413|429|502|503, message: string): never {

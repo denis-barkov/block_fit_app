@@ -1,4 +1,4 @@
-.PHONY: seed-goals seed-proposals seed-update accounts-provision help setup dev build check test test-browser package db-migrate seed staff-create password-reset session-revoke provision deploy snapshot restore suspend resume destroy smoke-prod reset-local benchmark-auth ai-carry-forward
+.PHONY: seed-goals seed-proposals seed-update accounts-provision help setup dev build check test test-browser package db-migrate seed staff-create password-reset session-revoke provision deploy snapshot restore suspend resume destroy smoke-prod reset-local benchmark-auth
 ENV ?=
 NODE = node --disable-warning=ExperimentalWarning
 TASK = $(NODE) scripts/run.mjs
@@ -22,14 +22,13 @@ help:
 	  'make suspend / resume / destroy ENV=prod  Manage the named deployment' \
 	  'make smoke-prod ENV=prod         Check ordinary login with dedicated credentials' \
 	  'make reset-local ENV=local RESET=local  Move old local data aside and reseed' \
-	  'make benchmark-auth              Measure local Better Auth password verification' \
-	  'make ai-carry-forward ENV=prod  Reconcile a restored AI spending ledger'
+	  'make benchmark-auth              Measure local Better Auth password verification'
 
 setup:
 	npm ci --no-audit --no-fund
 	$(TASK) setup local
 
-dev build package db-migrate seed seed-goals seed-proposals staff-create password-reset session-revoke suspend resume destroy smoke-prod ai-carry-forward:
+dev build package db-migrate seed seed-goals seed-proposals staff-create password-reset session-revoke suspend resume destroy smoke-prod:
 	$(TASK) $@ "$(ENV)"
 
 provision deploy:

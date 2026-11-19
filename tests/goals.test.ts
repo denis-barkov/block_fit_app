@@ -58,10 +58,8 @@ beforeAll(async()=>{
   proxy=await database();db=proxy.env.DB;
   env={DB:db,APP_ORIGIN:origin,AUTH_SECRET:'synthetic test goals configuration secret',
     ASSETS:{fetch:async()=>new Response('test assets'),connect:()=>{throw new Error('Unused');}},
-    AI_ENABLED:'true',OPENAI_API_KEY:'mock-only',OPENAI_MODEL:'gpt-6.2-sol',OPENAI_REASONING_EFFORT:'low',
-    AI_BUDGET_MICROUSD:'50000000',AI_INPUT_MICROUSD_PER_MILLION:'1000000',AI_OUTPUT_MICROUSD_PER_MILLION:'2000000',
+    AI_ENABLED:'true',OPENAI_API_KEY:'mock-only',OPENAI_MODEL:'gpt-6-luna',OPENAI_REASONING_EFFORT:'low',
   };
-  await db.prepare('UPDATE operations SET ai_frozen=0 WHERE id=1').run();
   staff=await actor('staff','staff');second=await actor('second','staff');resident=await actor('resident','resident');
 });
 afterAll(async()=>await proxy?.dispose());
@@ -194,10 +192,10 @@ it('bounds spend, reuses one authoritative assessment, and gives Explain and exp
     expect(await included.text()).toContain('## AI explanation');
     const other=await staff('/staff/export','POST',{...view,goal:{...view.goal,filter:'all'}});
     expect(await other.text()).not.toContain('## AI explanation');
-    const finished=await db.prepare('SELECT started FROM ai_staff_usage WHERE pending_until=0').all<{started:number}>();
+    const finished=await db.prepare('SELECT started FROM ai_staff_usage').all<{started:number}>();
     expect(finished.results).toHaveLength(2);
-    expect(ai.staffCooldownMs).toBe(15_000);
-    await db.prepare("UPDATE ai_staff_usage SET started=started-? WHERE pending_until=0").bind(15_000).run();
+    expect(ai.cooldownMs.staff).toBe(5_000);
+    await db.prepare("UPDATE ai_staff_usage SET started=started-?").bind(ai.cooldownMs.staff).run();
     expect(await send(second,'/staff/goals/preview','POST',{...ref,goal:deliveryGoal})).toMatchObject({evaluationKey:null});
     const contrasted=await send<{evaluationKey:string;evaluation:import('../src/goals').GoalEvaluation}>(
       staff,'/staff/goals/evaluate','POST',{...ref,goal:deliveryGoal});
@@ -246,12 +244,10 @@ it('blocks oversized evaluation before calling the provider and allows explicit 
 });
 
 it('reserves one dispatch for concurrent staff requests and discards a result when the goal changes in flight',async()=>{
-  await db.prepare('UPDATE ai_staff_usage SET started=0 WHERE pending_until=0').run();
+  await db.prepare('UPDATE ai_staff_usage SET started=0').run();
   const goal=await makeGoal({...dateGoal,name:'Concurrent review'});
   const ref=await reference({...scene,selected:['scope-0'],selectedOnly:true});
   const input={...ref,goal};
-  const spentBefore=Number(await db.prepare('SELECT spent FROM ai_total WHERE id=1').first('spent'));
-  const attemptsBefore=Number(await db.prepare('SELECT sum(attempts) AS total FROM ai_day').first('total'));
   const realFetch=fetch;
   let start=()=>{};
   let finish=()=>{};
@@ -272,13 +268,11 @@ it('reserves one dispatch for concurrent staff requests and discards a result wh
     const pending=staff('/staff/goals/evaluate','POST',input);
     await started;
     expect((await second('/staff/goals/evaluate','POST',input)).status).toBe(409);
-    expect((await staff('/staff/explain','POST',ref)).status).toBe(409);
+    expect((await staff('/staff/explain','POST',ref)).status).toBe(429);
     await send(second,'/staff/goals/'+goal.id,'PUT',{...dateGoal,version:goal.version,name:'Revised concurrent review'});
     finish();
     expect((await pending).status).toBe(409);
     expect(dispatches).toBe(1);
-    expect(Number(await db.prepare('SELECT sum(attempts) AS total FROM ai_day').first('total'))-attemptsBefore).toBe(1);
-    expect(Number(await db.prepare('SELECT spent FROM ai_total WHERE id=1').first('spent'))).toBeGreaterThan(spentBefore);
     expect(await send(staff,'/staff/goals/preview','POST',{...ref,goal:{...goal,version:2}})).toMatchObject({evaluationKey:null});
   } finally {finish();vi.unstubAllGlobals();}
 });

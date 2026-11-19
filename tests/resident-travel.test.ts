@@ -1,4 +1,5 @@
 import { afterAll,beforeAll,expect,it,vi } from 'vitest';
+import { ai } from '../config/settings';
 import { travel } from '../config/travel';
 import { createAuth } from '../src/server/auth';
 import app from '../src/server/index';
@@ -27,13 +28,11 @@ async function account(name:string,role:'staff'|'resident') {
 
 const request=(cookie:string,body:object)=>app.request(origin+'/api/resident/travel',{method:'POST',
   headers:{Origin:origin,Cookie:cookie,'Content-Type':'application/json'},body:JSON.stringify(body)},env);
-const balance=()=>env.DB.prepare('SELECT spent FROM ai_total WHERE id=1').first<number>('spent');
 
 beforeAll(async()=>{
   proxy=await database();
   env={DB:proxy.env.DB,APP_ORIGIN:origin,AUTH_SECRET:crypto.randomUUID(),DEPLOYMENT:'local',AI_ENABLED:'true',
-    OPENAI_MODEL:'gpt-6.2-sol',OPENAI_REASONING_EFFORT:'low',OPENAI_API_KEY:'mock-test-value',AI_BUDGET_MICROUSD:'1000000',AI_INPUT_MICROUSD_PER_MILLION:'1000000',
-    AI_OUTPUT_MICROUSD_PER_MILLION:'1000000',
+    OPENAI_MODEL:'gpt-6-luna',OPENAI_REASONING_EFFORT:'low',OPENAI_API_KEY:'mock-test-value',
     ASSETS:{fetch:()=>Promise.resolve(new Response('test assets')),connect:()=>{throw new Error('Unused');}} as Fetcher};
   [first,second,staff,automated]=await Promise.all([
     account('first','resident'),account('second','resident'),account('staff','staff'),account('automated','resident'),
@@ -42,7 +41,7 @@ beforeAll(async()=>{
     `INSERT INTO equipment(id,name,category,lat,lng,condition,access,source,verified_on,visible,archived)
       VALUES(?,?,'pull-up',?,?,?,?,'Fixture','2026-01-01',1,?)`,
   ).bind(id,`Travel fixture ${id}`,lat,point.lng,condition,access,archived);
-  await env.DB.batch([env.DB.prepare('UPDATE operations SET ai_frozen=0 WHERE id=1'),
+  await env.DB.batch([
     ...Array.from({length:travel.pageSize+1},(_,index)=>good(`a-${String(index).padStart(3,'0')}`,point.lat+.002)),
     good('z-last',point.lat),good('unusable',point.lat,'unusable'),good('unknown',point.lat,'unknown'),
     good('private',point.lat,'usable','restricted'),good('archived',point.lat,'usable','public',1)]);
@@ -72,7 +71,7 @@ it('blocks anonymous, staff, and automated-test accounts and returns empty witho
 });
 
 it('selects nearest across pages, keeps scoped caches and shares cooldown across modes',async()=>{
-  expect(travel.ai.cooldownMs).toBe(15_000);
+  expect(ai.cooldownMs.resident).toBe(5_000);
   const response=await request(first,input);
   expect(response.status).toBe(200);
   const data=await response.json() as TravelResponse;
@@ -88,12 +87,11 @@ it('selects nearest across pages, keeps scoped caches and shares cooldown across
   expect(await direct.json()).toMatchObject({cached:false,options:[{id:'a-090',reason:'distance'}]});
   expect((await request(second,input)).status).toBe(429);
   expect(calls).toHaveLength(4);
-  expect(await balance()).toBe(1200);
   expect(await env.DB.prepare('SELECT count(*) AS n FROM ai_resident_usage').first('n')).toBe(2);
 });
 
-it('validates mapped claims, cache invalidation, the resident cap, and the shared budget',async()=>{
-  await env.DB.prepare('UPDATE ai_resident_usage SET started=?').bind(Date.now()-travel.ai.cooldownMs*2).run();
+it('validates mapped claims, cache invalidation, and ignores legacy resident attempt counts',async()=>{
+  await env.DB.prepare('UPDATE ai_resident_usage SET started=?').bind(Date.now()-ai.cooldownMs.resident*2).run();
   const stop={...point,mode:'rail',name:'Mapped station'};
   const evidence={origin:[stop],'z-last':[stop]};
   reason='mapped-rail';
@@ -101,33 +99,23 @@ it('validates mapped claims, cache invalidation, the resident cap, and the share
   expect(await good.json()).toMatchObject({cached:false,evidence:'partial',options:[{id:'z-last',reason:'mapped-rail'}]});
   expect(await (await request(first,{...input,target:'z-last',observations:evidence})).json()).toMatchObject({cached:true});
   expect((await request(first,{...input,target:'z-last',observations:{origin:[stop]}})).status).toBe(429);
-  await env.DB.prepare('UPDATE ai_resident_usage SET started=?').bind(Date.now()-travel.ai.cooldownMs*2).run();
+  await env.DB.prepare('UPDATE ai_resident_usage SET started=?').bind(Date.now()-ai.cooldownMs.resident*2).run();
   expect((await request(first,{...input,target:'z-last',observations:{origin:[stop]}})).status).toBe(502);
   reason='distance';
   replaceId='unusable';
-  await env.DB.prepare('UPDATE ai_resident_usage SET started=?').bind(Date.now()-travel.ai.cooldownMs*2).run();
+  await env.DB.prepare('UPDATE ai_resident_usage SET started=?').bind(Date.now()-ai.cooldownMs.resident*2).run();
   expect((await request(first,{...input,target:'z-last',observations:{origin:[stop]}})).status).toBe(502);
   replaceId='';
-  await env.DB.prepare('UPDATE ai_resident_usage SET started=?,attempts=?').bind(Date.now()-travel.ai.cooldownMs*2,travel.ai.daily).run();
-  expect((await request(first,{...input,target:'a-007'})).status).toBe(429);
+  await env.DB.prepare('UPDATE ai_resident_usage SET started=?,attempts=50').bind(Date.now()-ai.cooldownMs.resident*2).run();
+  await env.DB.prepare("INSERT INTO throttle(key,window,attempts) SELECT 'travel:'||scope,?,100 FROM ai_resident_usage")
+    .bind(Math.floor(Date.now()/600_000)).run();
+  expect((await request(first,{...input,target:'a-007'})).status).toBe(200);
   expect(await (await request(first,input)).json()).toMatchObject({cached:true});
-  await env.DB.prepare('UPDATE ai_resident_usage SET attempts=0').run();
-  const previous=env.AI_BUDGET_MICROUSD;
-  env.AI_BUDGET_MICROUSD=String(await balance());
-  try {
-    expect((await request(first,{...input,target:'a-007'})).status).toBe(429);
-    const staffPost=(path:string,body:object)=>app.request(origin+'/api/staff/'+path,{method:'POST',
-      headers:{Origin:origin,Cookie:staff,'Content-Type':'application/json'},body:JSON.stringify(body)},env);
-    const scenario={category:'parallel',radius:200,horizon:10,budget:2_000_000,selected:[]};
-    const {revision,calculatedAt}=await (await staffPost('compare',scenario)).json() as {revision:number;calculatedAt:string};
-    expect((await staffPost('explain',{scenario,revision,calculatedAt})).status).toBe(429);
-  }
-  finally {env.AI_BUDGET_MICROUSD=previous;}
+  expect(await env.DB.prepare('SELECT attempts FROM ai_resident_usage WHERE attempts=50 LIMIT 1').first('attempts')).toBe(50);
 });
 
-it('allows one generation in flight and conservatively settles a provider outage',async()=>{
-  await env.DB.prepare('UPDATE ai_resident_usage SET started=?,attempts=0').bind(Date.now()-travel.ai.cooldownMs*2).run();
-  const prior=(await balance())!;
+it('blocks duplicates and allows retries after the cooldown when the provider fails',async()=>{
+  await env.DB.prepare('UPDATE ai_resident_usage SET started=?').bind(Date.now()-ai.cooldownMs.resident*2).run();
   hold={entered:Promise.withResolvers(),release:Promise.withResolvers()};
   fail=true;
   const pending=request(first,{...input,target:'a-008'});
@@ -139,6 +127,7 @@ it('allows one generation in flight and conservatively settles a provider outage
   } finally {hold.release.resolve();}
   expect((await pending).status).toBe(502);
   hold=undefined;fail=false;
-  expect(await balance()).toBeGreaterThan(prior);
-  expect((await request(first,{...input,target:'a-008'})).status).toBe(409);
+  expect((await request(first,{...input,target:'a-008'})).status).toBe(429);
+  await env.DB.prepare('UPDATE ai_resident_usage SET started=started-?').bind(ai.cooldownMs.resident).run();
+  expect((await request(first,{...input,target:'a-008'})).status).toBe(200);
 });

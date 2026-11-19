@@ -54,7 +54,7 @@ it('upgrades populated catalog D1 and preserves edited and deleted goal fixtures
     expect(await db.prepare("SELECT notes FROM candidates WHERE id='demo-a'").first('notes')).toBe('Staff changed seeded schedule note');
     const snapshot=await createSnapshot(db,'private');
     expect((await createSnapshot(db,'demo')).records).not.toHaveProperty('program_goals');
-    await restoreSnapshot(restored.env.DB,{...snapshot,version:'0.4.1'});
+    await restoreSnapshot(restored.env.DB,{...snapshot,version:'0.4.2',migration:'0007_program_goals.sql'});
     const roundTrip=await createSnapshot(restored.env.DB,'private');
     expect(roundTrip.records.program_goals).toEqual(snapshot.records.program_goals);
     expect(roundTrip.records.candidates).toEqual(snapshot.records.candidates);

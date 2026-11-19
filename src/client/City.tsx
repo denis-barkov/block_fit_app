@@ -44,8 +44,7 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
   const report=useAction();
   const ai=useAction();
   const programs=useProgramGoals();
-  const [filter,setFilter]=useState<GoalFilter>('all');
-  const [order,setOrder]=useState<GoalOrder>('baseline');
+  const [view,setView]=useState<{key:string;filter:GoalFilter;order:GoalOrder}>();
   const [generated,setGenerated]=useState<{key:string;explanation:Explanation}>();
   const [explanationAttempt,setExplanationAttempt]=useState('');
   const available=types.some(type=>type.id===scenario.category);
@@ -67,6 +66,9 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
   const goal=programs.goal;
   const evaluation=useGoalReview(goal,requestRef);
   const review=evaluation.status?.review;
+  const assessedKey=review?.evaluation?.assessments.length?review.evaluationKey:null;
+  const filter=assessedKey&&view?.key===assessedKey?view.filter:'all';
+  const order=assessedKey?(view?.key===assessedKey?view.order:'fit'):'baseline';
   const rows=current&&goal?goalRows(current,review?.goal??goal,review?.evaluation):[];
   const goalDisplay=goalView(rows,filter,order);
   const staleGoal=!!programs.selected&&(!goal||/changed|deleted|refresh the comparison/i.test(evaluation.status?.error??''));
@@ -74,7 +76,8 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
   const explanationKey=reference?JSON.stringify(reference):'';
   const explanation=reference&&(generated?.key===explanationKey?generated.explanation:goal?undefined:current?.explanation);
   function selectGoal(id:string) {
-    programs.select(id);setFilter('all');setOrder(id?'fit':'baseline');
+    if(id!==programs.selected)evaluation.reset();
+    programs.select(id);setView(undefined);
   }
   const optionById=new Map(current?.options.map(option=>[optionId(option.ids),option]));
   const visibleOptions=goal?goalDisplay.visible.flatMap(row=>{
@@ -206,8 +209,10 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
       </div>
       <GoalSelector programs={programs} types={types} onSelect={selectGoal}/>
       {goal&&current&&<GoalStatus goal={review?.goal??goal} review={evaluation.status} view={goalDisplay}
-        filter={filter} order={order} budget={dollars(current.scenario.budget)} onFilter={setFilter} onOrder={setOrder}
-        disabled={ai.busy||action.busy} evaluate={()=>void evaluation.submit(true)}/>}
+        filter={filter} order={order} budget={dollars(current.scenario.budget)}
+        onFilter={next=>{if(assessedKey)setView({key:assessedKey,filter:next,order});}}
+        onOrder={next=>{if(assessedKey)setView({key:assessedKey,filter,order:next});}}
+        disabled={action.busy} evaluate={()=>void evaluation.submit(true)}/>}
       {goal&&current&&!review?.evaluation&&<p className="text-sm muted">Evaluate for qualitative fit. Explain can cover the current deterministic results.</p>}
       {(report.status || report.error || (explanationAttempt===explanationKey && ai.error)) && <div className="md:text-right">
         <Feedback {...report}/>

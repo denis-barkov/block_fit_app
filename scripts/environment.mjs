@@ -6,12 +6,11 @@ import {spawnSync} from 'node:child_process';
 import {z} from 'zod';
 
 export const state=resolve('.blockfit');
-const sharedModelSettings=['OPENAI_MODEL','OPENAI_REASONING_EFFORT','AI_INPUT_MICROUSD_PER_MILLION','AI_OUTPUT_MICROUSD_PER_MILLION'];
+const sharedModelSettings=['OPENAI_MODEL','OPENAI_REASONING_EFFORT'];
 const readEnv = path => existsSync(path)?parseEnv(readFileSync(path,'utf8')):{};
 const name=z.string().regex(/^[a-z][a-z0-9-]{1,30}$/);
 const letterToken=z.string().regex(/^[a-z0-9][a-z0-9-]{0,29}$/);
 const optionalText=z.string().optional().default('');
-const optionalInteger=z.string().regex(/^(|[1-9][0-9]{0,12})$/).refine(value=>Number(value)<=1e12).optional().default('');
 const schema=z.object({
   PROJECT_NAME:name,MANAGED_BY:z.literal('script'),SERVICE_PART:letterToken.or(z.literal('')).optional(),FUNDING:letterToken.or(z.literal('')).optional(),
   DEPLOYMENT:z.enum(['local','prod']),APP_ORIGIN:optionalText,AUTH_SECRET:z.string().min(32),
@@ -21,7 +20,6 @@ const schema=z.object({
   DEPLOYMENT_SUFFIX:letterToken.or(z.literal('')).optional().default(''),
   AI_ENABLED:z.enum(['true','false']).optional().default('false'),OPENAI_API_KEY:optionalText,OPENAI_MODEL:optionalText,
   OPENAI_REASONING_EFFORT:z.enum(['','none','low','medium','high','xhigh','max']).optional().default(''),
-  AI_BUDGET_MICROUSD:optionalInteger,AI_INPUT_MICROUSD_PER_MILLION:optionalInteger,AI_OUTPUT_MICROUSD_PER_MILLION:optionalInteger,
 });
 export function setupEnvironment() {
   mkdirSync(state,{recursive:true,mode:0o700});
@@ -37,7 +35,7 @@ export function environment(selected,{dryRun=false}={}) {
   if(selected!=='local'&&selected!=='prod') throw new Error('Select ENV=local or ENV=prod explicitly.');
   const override=readEnv('.env.'+selected);
   if(sharedModelSettings.some(key=>Object.hasOwn(override,key))) {
-    throw new Error('Keep the OpenAI model, reasoning effort, and token prices in the shared root .env.');
+    throw new Error('Keep the OpenAI model and reasoning effort in the shared root .env.');
   }
   const data={...readEnv('.env'),...override};
   // CI can inject only these private values, and must explicitly opt in.
@@ -63,9 +61,8 @@ export function environment(selected,{dryRun=false}={}) {
   if(/^gpt-6\.2-(sol|astra)(?:-|$)/.test(env.OPENAI_MODEL) && env.OPENAI_REASONING_EFFORT==='none') {
     throw new Error('GPT-6.2 Sol and Astra require reasoning effort of low or higher.');
   }
-  if(env.AI_ENABLED==='true' && (!env.OPENAI_MODEL || !env.OPENAI_REASONING_EFFORT || !env.OPENAI_API_KEY || !env.AI_BUDGET_MICROUSD ||
-    !env.AI_INPUT_MICROUSD_PER_MILLION || !env.AI_OUTPUT_MICROUSD_PER_MILLION)) {
-    throw new Error('Live AI requires a shared model, reasoning effort, input/output prices, a key and a budget.');
+  if(env.AI_ENABLED==='true' && (!env.OPENAI_MODEL || !env.OPENAI_REASONING_EFFORT || !env.OPENAI_API_KEY)) {
+    throw new Error('Live AI requires a shared model, reasoning effort, and an API key.');
   }
   return {...env,resourceName,origin};
 }
@@ -94,11 +91,7 @@ export function writeConfig(env,{databaseId,directory=state}={}) {
 }
 function resolvedSecrets(env) {
   const secrets={AUTH_SECRET:env.AUTH_SECRET};
-  if(env.AI_ENABLED==='true') {
-    for(const name of ['OPENAI_API_KEY','AI_BUDGET_MICROUSD','AI_INPUT_MICROUSD_PER_MILLION','AI_OUTPUT_MICROUSD_PER_MILLION']) {
-      secrets[name]=env[name];
-    }
-  }
+  if(env.AI_ENABLED==='true')secrets.OPENAI_API_KEY=env.OPENAI_API_KEY;
   return secrets;
 }
 export function secretsFile(env,config) {

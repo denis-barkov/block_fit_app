@@ -140,9 +140,9 @@ describe('connected Worker API and D1',()=>{
     expect(record.status).toBe(201);
     const {id:siteId}=await json<{id:string}>(record);
     const settings={...env};
-    Object.assign(env,{AI_ENABLED:'true',OPENAI_MODEL:'gpt-6.2-sol',OPENAI_REASONING_EFFORT:'low',OPENAI_API_KEY:'test-only',AI_BUDGET_MICROUSD:'30000',
-      AI_INPUT_MICROUSD_PER_MILLION:'1000000',AI_OUTPUT_MICROUSD_PER_MILLION:'1000000'});
-    await env.DB.exec('UPDATE operations SET ai_frozen=0 WHERE id=1');
+    Object.assign(env,{AI_ENABLED:'true',OPENAI_MODEL:'gpt-6-luna',OPENAI_REASONING_EFFORT:'low',OPENAI_API_KEY:'test-only'});
+    await env.DB.prepare("INSERT INTO throttle(key,window,attempts) SELECT 'ai:'||id,?,100 FROM user WHERE role='staff'")
+      .bind(Math.floor(Date.now()/600_000)).run();
     const realFetch=globalThis.fetch;
     const responseBody={summary:'Test candidate leads on modeled lifecycle cost per additional requester.',tradeoffs:'',checks:'',
       referencedOptionIds:[siteId]};
@@ -176,14 +176,13 @@ describe('connected Worker API and D1',()=>{
       responseBody.referencedOptionIds=[siteId,siteId];
       const explanation={...responseBody,referencedOptionIds:[siteId],highlightedOptionIds:[siteId]};
       expect((await staff.send('/staff/explain','POST',ref)).status).toBe(429);
-      await env.DB.exec('UPDATE ai_staff_usage SET started=0 WHERE pending_until=0');
+      await env.DB.exec('UPDATE ai_staff_usage SET started=0');
       expect(await (await staff.send('/staff/explain','POST',ref)).json()).toEqual(explanation);
       expect(await (await staff.send('/staff/compare','POST',scenario)).json()).toMatchObject({explanation});
       expect(openai).toHaveBeenCalledTimes(4);
     } finally {
       vi.unstubAllGlobals();
       Object.assign(env,{...settings,AI_ENABLED:undefined,OPENAI_API_KEY:undefined});
-      await env.DB.exec('UPDATE operations SET ai_frozen=1 WHERE id=1');
       await staff.send('/staff/inventory/candidates/'+siteId,'DELETE');
     }
   });

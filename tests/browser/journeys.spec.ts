@@ -571,6 +571,13 @@ test('staff saves a goal, evaluates and filters options, and clears the goal wit
 
     let evaluations=0,explanations=0;
     let explanationFilter='';
+    let cachedPreview:{goal:{id:string;version:number}}|undefined;
+    await page.route('**/api/staff/goals/preview',async route=>{
+      const goal=route.request().postDataJSON().goal;
+      if(cachedPreview?.goal.id===goal.id&&cachedPreview?.goal.version===goal.version) {
+        await route.fulfill({json:cachedPreview});
+      } else await route.continue();
+    });
     await page.route('**/api/staff/goals/evaluate',async route=>{
       evaluations++;
       const request=route.request().postDataJSON();
@@ -579,11 +586,13 @@ test('staff saves a goal, evaluates and filters options, and clears the goal wit
       const prior=await page.request.post('/api/staff/goals/preview',{headers:{Origin:baseURL!},data:request});
       const preview=await prior.json();
       const delivery=preview.goal.name==='Delivery readiness';
-      await route.fulfill({json:{...preview,evaluationKey:'a'.repeat(64),evaluation:{clarification:null,
+      const response={...preview,evaluationKey:'a'.repeat(64),evaluation:{clarification:null,
         assessments:comparison.options.map((option,index)=>({id:[...option.ids].sort().join(','),
           fit:(delivery?option.ids[0]==='demo-v3-east-gate-candidate':index===0)?'strong':'partial',
           reason:delivery?'The delivery goal prioritizes the confirmed inspection slot.':'The disruption goal prioritizes avoiding excavation.',
-          evidence:['s1'],missing:['Confirm staging access'],conflict:null}))}}});
+          evidence:['s1'],missing:['Confirm staging access'],conflict:null}))}};
+      if(!delivery)cachedPreview=response;
+      await route.fulfill({json:response});
     });
     await page.route('**/api/staff/explain',async route=>{
       explanations++;
@@ -611,11 +620,13 @@ test('staff saves a goal, evaluates and filters options, and clears the goal wit
     await expect(page.getByRole('combobox',{name:'Program goal',exact:true}).locator('option:checked')).toHaveText('Low disruption');
     await expect(context.getByRole('combobox',{name:'Program goal',exact:true})).toHaveValue('');
     await expect(table.getByRole('columnheader',{name:/Goal fit/})).toBeVisible();
-    await expect(page.getByLabel('Option ordering')).toHaveValue('fit');
+    await expect(page.getByLabel('Filter by goal fit')).toHaveCount(0);
+    await expect(page.getByLabel('Option ordering')).toHaveCount(0);
     await expect(page.getByRole('region',{name:'Goal review'})).toContainText('Start on or after 2027-03-01');
     expect(evaluations).toBe(0);
     expect(explanations).toBe(0);
     await page.getByRole('button',{name:'Evaluate goal'}).click();
+    await expect(page.getByLabel('Option ordering')).toHaveValue('fit');
     const hint=table.getByRole('button',{name:/Goal evidence for/}).first();
     await hint.press('Enter');
     await expect(hint).toHaveAttribute('aria-expanded','true');
@@ -646,8 +657,8 @@ test('staff saves a goal, evaluates and filters options, and clears the goal wit
     await editor.getByLabel('Description').fill('Prioritize confirmed inspection and delivery slots.');
     await editor.getByRole('button',{name:'Save goal'}).click();
     await expect(editor).toHaveCount(0);
-    await expect(page.getByLabel('Filter by goal fit')).toHaveValue('all');
-    await expect(page.getByLabel('Option ordering')).toHaveValue('fit');
+    await expect(page.getByLabel('Filter by goal fit')).toHaveCount(0);
+    await expect(page.getByLabel('Option ordering')).toHaveCount(0);
     await page.getByRole('button',{name:'Evaluate goal'}).click();
     const lead=table.getByRole('row').nth(1);
     await expect(lead).toContainText('East gate training plaza');
@@ -655,6 +666,10 @@ test('staff saves a goal, evaluates and filters options, and clears the goal wit
     await expect(lead).toContainText('The delivery goal prioritizes the confirmed inspection slot.');
     await page.getByLabel('Filter by goal fit').selectOption('strong');
     await expect(table.getByRole('row')).toHaveCount(2);
+    await page.getByRole('combobox',{name:'Program goal',exact:true}).selectOption({label:'Low disruption'});
+    await expect(page.getByRole('button',{name:'Evaluate goal'})).toBeEnabled();
+    await expect(page.getByLabel('Filter by goal fit')).toHaveCount(0);
+    await expect(page.getByLabel('Option ordering')).toHaveCount(0);
     await page.getByRole('button',{name:'Clear goal'}).click();
     await expect(table.getByRole('columnheader',{name:/Goal fit/})).toHaveCount(0);
     await expect(page.getByRole('region',{name:'Goal review'})).toHaveCount(0);

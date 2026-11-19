@@ -16,7 +16,7 @@ export const limits = {
   minPassword: 15, maxPassword: 128,
 };
 export const ai = {
-  daily: 150, inputTokens: 2000, outputTokens: 1000,
+  inputTokens: 2000, outputTokens: 1000,
   cacheDays: 7, cacheEntries: 100, outputWords: 220, inputBytes: 12_000,
-  staffCooldownMs:15_000, reservationMs:120_000,
+  cooldownMs:{staff:5_000,resident:5_000}, reservationMs:120_000,
 };

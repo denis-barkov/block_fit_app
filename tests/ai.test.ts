@@ -21,11 +21,9 @@ let db:D1Database;
 beforeAll(async()=>{
   proxy=await database();
   db=proxy.env.DB;
-  env={DB:db,AI_ENABLED:'true',OPENAI_MODEL:'gpt-6.2-sol',OPENAI_REASONING_EFFORT:'low',OPENAI_API_KEY:'mock-only',AI_BUDGET_MICROUSD:'15000',
-    AI_INPUT_MICROUSD_PER_MILLION:'1000000',AI_OUTPUT_MICROUSD_PER_MILLION:'2000000',
+  env={DB:db,AI_ENABLED:'true',OPENAI_MODEL:'gpt-6-luna',OPENAI_REASONING_EFFORT:'low',OPENAI_API_KEY:'mock-only',
     APP_ORIGIN:'http://127.0.0.1:8787',AUTH_SECRET:'synthetic test configuration secret',
     ASSETS:{fetch:()=>Promise.resolve(new Response('test assets')),connect:()=>{throw new Error('Unused');}} as Fetcher};
-  await db.prepare('UPDATE operations SET ai_frozen=0 WHERE id=1').run();
   await db.prepare(`INSERT INTO synthetic_demand VALUES('known-only-to-server','pull-up',40.7192,-73.8461)`).run();
   result=await current();
 });
@@ -57,7 +55,7 @@ function provider({tokens=500,response=success,hold,failure=false}:{tokens?:numb
       return Response.json({input_tokens:tokens});
     }
     calls.push('generation');
-    expect(JSON.parse(body)).toMatchObject({max_output_tokens:ai.outputTokens,store:false,service_tier:'default',reasoning:{effort:'low'}});
+    expect(JSON.parse(body)).toMatchObject({max_output_tokens:ai.outputTokens,store:false,service_tier:'default',model:'gpt-6-luna',reasoning:{effort:'low'}});
     await hold?.();
     if(failure)throw new Error('Test timeout');
     return Response.json(response);
@@ -65,13 +63,12 @@ function provider({tokens=500,response=success,hold,failure=false}:{tokens?:numb
 }
 const spent=()=>db.prepare('SELECT spent FROM ai_total WHERE id=1').first<number>('spent');
 
-it('checks tokens and caches a bounded aggregate without spending twice',async()=>{
+it('checks tokens and caches a bounded aggregate without generating twice',async()=>{
   const fake=provider();
   expect(await explain(env,result,fake.fetch)).toEqual(explanation);
   expect(await explain(env,result,fake.fetch)).toEqual(explanation);
   expect(await cachedExplanation(env,result)).toEqual(explanation);
   expect(fake.calls).toEqual(['count','generation']);
-  expect(await spent()).toBe(700);
   const newRevision=await revise();
   expect(await cachedExplanation(env,newRevision)).toBeUndefined();
   const oversized=provider({tokens:ai.inputTokens+1});
@@ -80,38 +77,50 @@ it('checks tokens and caches a bounded aggregate without spending twice',async()
   await expect(explain({...env,AI_ENABLED:'false'},newRevision,fake.fetch)).rejects.toMatchObject({status:503});
 });
 
-it('serializes duplicate and distinct concurrent spending and retains uncertain reservations',async()=>{
+it('blocks duplicate work and allows distinct requests from the same account after five seconds',async()=>{
   const comparison=await revise();
   const start=Promise.withResolvers<void>();
   const release=Promise.withResolvers<void>();
-  const first=provider({hold:()=>{start.resolve();return release.promise;},failure:true});
-  const pending=explain({...env,AI_BUDGET_MICROUSD:'4700'},comparison,first.fetch);
+  const first=provider({failure:true});
+  const heldProvider:typeof fetch=async(url,options)=>{
+    if(String(url).endsWith('/input_tokens')) {
+      start.resolve();
+      await release.promise;
+    }
+    return first.fetch(url,options);
+  };
+  const scope={staffScope:'same-test-account'};
+  const pending=explain(env,comparison,heldProvider,undefined,scope);
   const check=expect(pending).rejects.toMatchObject({status:502});
   await start.promise;
-  const duplicate=provider();
-  await expect(explain(env,comparison,duplicate.fetch)).rejects.toMatchObject({status:409});
-  const different=await revise();
-  await expect(explain({...env,AI_BUDGET_MICROUSD:'4700'},different,duplicate.fetch)).rejects.toMatchObject({status:429});
-  expect(duplicate.calls).not.toContain('generation');
-  release.resolve();
+  const other=provider();
+  try {
+    await expect(explain(env,comparison,other.fetch,undefined,scope)).rejects.toMatchObject({status:409});
+    const next=await revise();
+    await expect(explain(env,next,other.fetch,undefined,scope)).rejects.toMatchObject({status:429});
+    expect(other.calls).toEqual([]);
+    await stmt(db,'UPDATE ai_staff_usage SET started=started-? WHERE scope=?',ai.cooldownMs.staff,scope.staffScope).run();
+    expect(await explain(env,next,other.fetch,undefined,scope)).toEqual(explanation);
+    expect(other.calls).toEqual(['count','generation']);
+  } finally {release.resolve();}
   await check;
-  expect(await spent()).toBe(4700);
 });
 
-it('enforces the UTC cap, rejects invalid output and refuses an explanation for stale data',async()=>{
+it('ignores legacy limits, rejects invalid output and refuses an explanation for stale data',async()=>{
   const today=new Date().toISOString().slice(0,10);
-  await stmt(db,'UPDATE ai_day SET attempts=? WHERE day=?',ai.daily,today).run();
-  const fake=provider();
-  await expect(explain(env,await revise(),fake.fetch)).rejects.toMatchObject({status:429});
-  expect(fake.calls).toEqual(['count']);
-  await stmt(db,'UPDATE ai_day SET attempts=? WHERE day=?',ai.daily-2,today).run();
+  await db.batch([
+    stmt(db,'UPDATE ai_total SET spent=1000000000000 WHERE id=1'),
+    stmt(db,'INSERT INTO ai_day(day,attempts) VALUES (?,1000)',today),
+  ]);
+  expect(await explain(env,await revise(),provider().fetch)).toEqual(explanation);
+  expect(await spent()).toBe(1000000000000);
+  expect(await stmt(db,'SELECT attempts FROM ai_day WHERE day=?',today).first('attempts')).toBe(1000);
   const bad=provider({response:{...success,output:[{content:[{type:'output_text',text:'bad JSON'}]}]}});
   const comparison=await revise();
   await expect(explain(env,comparison,bad.fetch)).rejects.toMatchObject({status:502});
   expect(await cachedExplanation(env,comparison)).toBeUndefined();
   const stale=provider({hold:async()=>{await revise();}});
   await expect(explain(env,await revise(),stale.fetch)).rejects.toMatchObject({status:409});
-  expect(await spent()).toBe(6100);
   expect(testRevision).toBeGreaterThan(2);
 });
 
@@ -127,18 +136,16 @@ it('keys explanations on rendered instructions, snapshot, model, schema and gene
   ];
   for(const changed of alternatives) expect(await explanationCacheKey(result.revision,changed)).not.toBe(key);
   expect(await explanationCacheKey(result.revision,request,999)).not.toBe(key);
-  expect(await spent()).toBe(6100);
 });
 
 it('rejects invalid snapshot before a call, validates output IDs and bounds, and allows manual retry',async()=>{
   const comparison=await revise();
   const fake=provider();
-  const initial=(await spent())!;
   await expect(explain(env,{...comparison,unmet:5},fake.fetch)).rejects.toMatchObject({status:503});
   expect(fake.calls).toEqual([]);
-  expect(await spent()).toBe(initial);
-  const today=new Date().toISOString().slice(0,10);
-  await stmt(db,'UPDATE ai_day SET attempts=0 WHERE day=?',today).run();
+  const overrun=provider({response:{...success,usage:{...success.usage,output_tokens:ai.outputTokens+1}}});
+  await expect(explain(env,comparison,overrun.fetch)).rejects.toThrow('exceeded the configured token bounds');
+  expect(await cachedExplanation(env,comparison)).toBeUndefined();
   for(const invalid of [{...output,referencedOptionIds:['unlisted']},{...output,highlightedOptionIds:['unlisted']},
     {...output,summary:'word '.repeat(ai.outputWords+1)}]) {
     const bad=provider({response:{...success,output:[{content:[{type:'output_text',text:JSON.stringify(invalid)}]}]}});
@@ -146,7 +153,6 @@ it('rejects invalid snapshot before a call, validates output IDs and bounds, and
     expect(await cachedExplanation(env,comparison)).toBeUndefined();
   }
   expect(await explain(env,comparison,fake.fetch)).toEqual(explanation);
-  expect(await spent()).toBe(initial+4*700);
 });
 
 it('distinguishes incomplete and refused responses and logs only safe reason codes',async()=>{

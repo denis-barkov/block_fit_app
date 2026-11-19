@@ -23,7 +23,7 @@ afterAll(async()=>{
   await Promise.all([source?.dispose(),target?.dispose()]);
 });
 
-it('round-trips private data into fresh D1, excludes sessions and freezes AI without rewinding spend',async()=>{
+it('round-trips private data into fresh D1, excludes sessions and preserves historical AI usage',async()=>{
   const db=source.env.DB, fresh=target.env.DB;
   await seedDataset(db);
   const first=await getComparison(db,scenario);

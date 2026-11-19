@@ -7,7 +7,7 @@ import { comparisonRef, goalComparisonRef, goalViewInput } from '../goals';
 import { cachedExplanation, explain } from './ai';
 import { hash } from './ai-gateway';
 import { activeEquipmentType, activeType, staffCatalog, typeUnavailable } from './catalog';
-import { getComparison, staffInventory, stmt, throttle } from './database';
+import { getComparison, staffInventory, stmt } from './database';
 import { makeBrief, type Comparison } from './planning';
 import { staffGoals } from './program-goals';
 import { evaluateGoal, goalBrief, goalExplanationContext, goalReview } from './goal-evaluation';
@@ -113,7 +113,6 @@ staff.post('/export',async c => {
 staff.post('/explain',async c => {
   if(isTest(c)) problem(403,'AI explanations are unavailable in the automated-test workspace.');
   const {scenario,revision,goal} = await body(c,reference);
-  if (!await throttle(c.env.DB,`ai:${c.get('user').id}`,12)) problem(429,'Too many requests. Try again shortly.');
   const result = await comparison(c.env.DB,scenario,isTest(c),revision);
   const review=goal?await visibleGoal(c,result,goal):undefined;
   return c.json(await explain(c.env,result,fetch,c.get('requestId'),{staffScope:await staffScope(c),testWorkspace:isTest(c),goal},

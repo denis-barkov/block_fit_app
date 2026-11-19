@@ -8,7 +8,6 @@ import {maintainAccount,provisionAccounts} from './accounts.mjs';
 import {printDemoPlan,seedDataset} from './fixtures.mjs';
 import {dataCommand} from './snapshot.mjs';
 import {remoteDatabase} from './remote-d1.mjs';
-import {ai} from '../config/settings.ts';
 import {deployPages,findPagesProject,packagePages,pagesBranch,pagesProjectPath,verifiedPages} from './pages.mjs';
 
 const token=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
@@ -55,7 +54,7 @@ async function validatePrivateWorker(call,env) {
 }
 export async function production(command,env,args) {
   if(!['provision','deploy','db-migrate','seed','staff-create','password-reset','session-revoke',
-    'snapshot','restore','suspend','resume','destroy','smoke-prod','ai-carry-forward','seed-update','accounts-provision'].includes(command)) {
+    'snapshot','restore','suspend','resume','destroy','smoke-prod','seed-update','accounts-provision'].includes(command)) {
     throw new Error('This command is unavailable for prod.');
   }
   const call=cloudflare(env,fetch,wranglerCredential(env));
@@ -193,17 +192,6 @@ export async function production(command,env,args) {
     } else if(command==='restore') {
       if(await lookup(call,bindingPath(env)))throw new Error('Restore requires a separately named D1 target without a deployed Worker.');
       await dataCommand(command,env,config,undefined,args,useDB);
-    } else if(command==='ai-carry-forward') {
-      const value=await prompt('After validating prior spend and outstanding reservations, enter the lifetime floor in microdollars: ');
-      const attempts=await prompt('Enter the previous instance’s attempts for today (UTC): ');
-      if(!/^\d{1,12}$/.test(value)||!/^\d{1,3}$/.test(attempts)||Number(attempts)>ai.daily)throw new Error('A valid spending floor and daily total are required.');
-      await useDB(db=>db.batch([
-        db.prepare('UPDATE ai_total SET spent=max(spent,?) WHERE id=1').bind(Number(value)),
-        db.prepare('INSERT INTO ai_day VALUES (?,?) ON CONFLICT(day) DO UPDATE SET attempts=max(attempts,excluded.attempts)')
-          .bind(new Date().toISOString().slice(0,10),Number(attempts)),
-        db.prepare('UPDATE operations SET ai_frozen=0 WHERE id=1'),
-      ]));
-      console.log('AI ledger reconciled. The deployment must separately enable live AI.');
     } else if(command==='smoke-prod') {
       await verifyBindings(call,env,record,true);
       await validatePrivateWorker(call,env);
