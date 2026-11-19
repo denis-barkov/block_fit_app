@@ -94,3 +94,25 @@ export const demoTypeProposals=[
   ['demo-type-platform','Step-up platfroms','Local demo · Correct the spelling to “Step-up platforms” before approving.'],
   ['demo-type-match','Chin-up frames','Local demo · Use the existing Pull-up bars type.'],
 ] as const;
+
+// Fixed dates keep the illustrative planning scenario reproducible.
+export const demoGoalSchedule={earliestStart:'2027-03-01',targetCompletion:'2027-06-30'};
+export const demoProgramGoals=[
+  {id:'demo-goal-low-disruption',name:'Low disruption',
+    description:'Favor supplied evidence of straightforward installation with limited disturbance. Flag unresolved ground and access concerns.',
+    ...demoGoalSchedule,allowedTypes:[]},
+  {id:'demo-goal-delivery',name:'Delivery readiness',
+    description:'Favor documented feasibility and fewer unresolved delivery issues. Missing notes do not demonstrate readiness.',
+    earliestStart:null,targetCompletion:null,allowedTypes:[]},
+  {id:'demo-goal-program',name:'Pull-up recreation program',
+    description:'Favor pull-up stations with documented straightforward installation and coverage of recorded unmet requests.',
+    earliestStart:null,targetCompletion:null,allowedTypes:['pull-up']},
+] as const;
+export const demoGoalCandidateUpdates=[
+  ['demo-a','Surface-mounted install on an existing pad. The staging route is identified in this fictional scenario.',
+    demoGoalSchedule.earliestStart,'2027-05-15'],
+  ['demo-b','Existing paved pad reduces ground disturbance. Delivery access and clearance need confirmation.',
+    '2027-02-15','2027-07-12'],
+  ['demo-pull-distant','Excavation and temporary path closure would be needed in this fictional scenario.',
+    '2027-04-15','2027-06-20'],
+] as const;

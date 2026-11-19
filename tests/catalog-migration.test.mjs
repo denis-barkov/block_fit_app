@@ -23,7 +23,7 @@ it('upgrades a populated pre-catalog D1 without changing references or classific
     const tables=['equipment','candidates','demand','synthetic_demand','user'];
     const selections=tables.map(table=>db.prepare(`SELECT * FROM ${table} ORDER BY id`));
     const before=(await db.batch(selections)).map(entry=>entry.results);
-    await applyMigrations(db,5);
+    await applyMigrations(db,5,6);
     expect((await db.batch(selections)).map(entry=>entry.results)).toEqual(before);
     expect((await db.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
     const types=(await db.prepare('SELECT id,name FROM equipment_types ORDER BY id').all()).results;
@@ -58,6 +58,7 @@ it('restores changed catalog labels and pending intents in private backups, and 
     await seedDataset(db);
     const baseline=await createSnapshot(db,'demo');
     const {equipment_types,type_proposals,...records}=baseline.records;
+    records.candidates=records.candidates.map(({estimated_start,estimated_ready,...row})=>row);
     await restoreSnapshot(legacy.env.DB,{...baseline,migration:'0005_resident_travel.sql',version:'0.2.2',records});
     expect((await legacy.env.DB.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
     await db.batch([

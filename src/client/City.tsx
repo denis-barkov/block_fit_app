@@ -4,9 +4,11 @@ import { mapArea } from '../../config/map-area';
 import { lazy,Suspense,useEffect,useState, type FormEvent } from 'react';
 import { planning } from '../../config/settings';
 import type { Category, EquipmentType, Explanation, Scenario } from '../contracts';
+import { goalRows, goalView, optionId, type GoalFilter, type GoalOrder } from '../goals';
 import { feasibilityLabels,interpretation,newlyCovered,ranking,screening,type Comparison } from '../server/planning';
 import { api,Categories,Feedback,Field,InfoHint,message,preferredType,useAction } from './common';
 import CityInventory,{type Inventory} from './CityInventory';
+import { GoalFitCell,GoalSelector,GoalStatus,useGoalReview,useProgramGoals } from './CityGoals';
 
 const MapView=lazy(()=>import('./Map'));
 const dollars=(amount:number|null)=>amount===null?'N/A':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(amount/100);
@@ -41,6 +43,11 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
   const action=useAction();
   const report=useAction();
   const ai=useAction();
+  const programs=useProgramGoals();
+  const [filter,setFilter]=useState<GoalFilter>('all');
+  const [order,setOrder]=useState<GoalOrder>('baseline');
+  const [generated,setGenerated]=useState<{key:string;explanation:Explanation}>();
+  const [explanationAttempt,setExplanationAttempt]=useState('');
   const available=types.some(type=>type.id===scenario.category);
   async function calculate(value:Scenario) {
     setResult(undefined);
@@ -55,13 +62,30 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
   const applied=available&&resultCatalog===types?result?.scenario:undefined;
   const current=applied && applied.category===scenario.category && applied.radius===scenario.radius &&
     applied.budget===scenario.budget && applied.horizon===scenario.horizon &&
-    applied.selected.join(',')===scenario.selected.join(',') ? result ?? null : null;
+    applied.selectedOnly===scenario.selectedOnly && applied.selected.join(',')===scenario.selected.join(',') ? result ?? null : null;
   const requestRef=current && {scenario:current.scenario,revision:current.revision,calculatedAt:current.calculatedAt};
+  const goal=programs.goal;
+  const evaluation=useGoalReview(goal,requestRef);
+  const review=evaluation.status?.review;
+  const rows=current&&goal?goalRows(current,review?.goal??goal,review?.evaluation):[];
+  const goalDisplay=goalView(rows,filter,order);
+  const staleGoal=!!programs.selected&&(!goal||/changed|deleted|refresh the comparison/i.test(evaluation.status?.error??''));
+  const reference=requestRef&&!staleGoal ? (goal?{...requestRef,goal:{id:goal.id,version:goal.version,filter,order,evaluationKey:review?.evaluationKey??null}}:requestRef) : null;
+  const explanationKey=reference?JSON.stringify(reference):'';
+  const explanation=reference&&(generated?.key===explanationKey?generated.explanation:goal?undefined:current?.explanation);
+  function selectGoal(id:string) {
+    programs.select(id);setFilter('all');setOrder('baseline');
+  }
+  const optionById=new Map(current?.options.map(option=>[optionId(option.ids),option]));
+  const visibleOptions=goal?goalDisplay.visible.flatMap(row=>{
+    const option=optionById.get(row.id);
+    return option?[{option,row}]:[];
+  }):current?.options.map(option=>({option,row:undefined}))??[];
   const inspected=applied?.category===scenario.category?result:undefined;
   const choices=inspected?.sites??[];
   const select=(category:Category|'')=>{
     if(!category)return;
-    const updated={...scenario,category,selected:[]};
+    const updated={...scenario,category,selected:[],selectedOnly:false};
     setScenario(updated);setFocused('');
     if(Number.isFinite(updated.radius)&&Number.isFinite(updated.horizon)&&Number.isFinite(updated.budget)) {
       void action.run(()=>calculate(updated));
@@ -128,6 +152,9 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
           <h3>{label(focus.id)}</h3>
           <p>{feasibilityLabels[focus.feasibility]}{focus.fixture?' · Illustrative demo candidate':''}</p>
           <p className="muted">{focus.notes||'No site notes.'}</p>
+          {(focus.estimatedStart||focus.estimatedReady) && <p className="text-sm muted">
+            Estimated start {focus.estimatedStart??'unknown'} · Estimated ready {focus.estimatedReady??'unknown'}
+          </p>}
           {focus.feasibility==='excluded' ? <p>Visible for review. This site cannot join a combination.</p> :
             <button className="button" aria-pressed={focusSelected} disabled={!focusSelected&&scenario.selected.length>=planning.combination}
               onClick={()=>toggle(focus.id)}>{focusSelected?'Remove from combination':'Add to combination'}</button>}
@@ -142,7 +169,11 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
               onChange={()=>toggle(site.id)}/>
             {site.name}</label>)}
         </fieldset>
-        <button type="submit" form="comparison-assumptions" className="button primary" disabled={action.busy||!available}>Compare sites</button>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!scenario.selectedOnly}
+          onChange={event=>setScenario({...scenario,selectedOnly:event.target.checked})}/> Compare selected sites only</label>
+        {scenario.selectedOnly&&!scenario.selected.length&&<p className="text-sm muted">Select at least one site or turn off selected-sites comparison.</p>}
+        <button type="submit" form="comparison-assumptions" className="button primary"
+          disabled={action.busy||!available||(scenario.selectedOnly&&!scenario.selected.length)}>Compare sites</button>
       </section>
     </div>
     <section className="panel space-y-4" aria-labelledby="comparison-heading">
@@ -152,37 +183,46 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
         <p>Upfront budget fit is separate from lifecycle costs. Missing amounts remain unknown. Zero new coverage yields N/A for cost per requester. {interpretation}</p>
       </>}><h2 id="comparison-heading">4. Compare investment options</h2></InfoHint>
         {current && <p className="text-sm muted">Revision {current.revision} · {new Date(current.calculatedAt).toLocaleString()}</p>}</div>
-        <div className="flex flex-wrap gap-2 md:ml-auto md:justify-end">{requestRef && <>
+        <div className="flex flex-wrap gap-2 md:ml-auto md:justify-end">{reference && <>
           <button className="button primary gap-2" disabled={report.busy} onClick={()=>void report.run(async()=>{
-            const text=await api<string>('/staff/export','POST',requestRef);
+            const text=await api<string>('/staff/export','POST',reference);
             const url=URL.createObjectURL(new Blob([text],{type:'text/markdown'}));
             const anchor=document.createElement('a');anchor.href=url;anchor.download=comparisonBriefFilename;anchor.click();
             setTimeout(()=>URL.revokeObjectURL(url),1000);
           },'Comparison brief downloaded.')}><Download className="action-icon" aria-hidden="true"/> Download brief</button>
-          {!testWorkspace && <button className="button" disabled={ai.busy||action.busy} onClick={()=>void ai.run(async()=>{
-            const explanation=await api<Explanation>('/staff/explain','POST',requestRef);
-            setResult(value=>value?.calculatedAt===requestRef.calculatedAt?{...value,explanation}:value);
-          })}>{ai.busy?'Preparing explanation…':'Request AI explanation'}</button>}
+          {!testWorkspace && <button className="button" disabled={ai.busy||action.busy} onClick={()=>{
+            setExplanationAttempt(explanationKey);
+            void ai.run(async()=>setGenerated({key:explanationKey,explanation:await api<Explanation>('/staff/explain','POST',reference)}));
+          }}>{ai.busy?'Preparing explanation…':'Request AI explanation'}</button>}
         </>}<span className="sr-only" role="status">{current && ai.busy?'Preparing explanation…':''}</span></div>
       </div>
-      {(report.status || report.error || (current && ai.error)) && <div className="md:text-right">
+      <GoalSelector programs={programs} types={types} onSelect={selectGoal}/>
+      {goal&&current&&<GoalStatus goal={review?.goal??goal} review={evaluation.status} view={goalDisplay}
+        filter={filter} order={order} budget={dollars(current.scenario.budget)} onFilter={setFilter} onOrder={setOrder}
+        disabled={ai.busy||action.busy} evaluate={()=>void evaluation.submit(true)}/>}
+      {goal&&current&&!review?.evaluation&&<p className="text-sm muted">Evaluate for qualitative fit. Explain can cover the current deterministic results.</p>}
+      {(report.status || report.error || (explanationAttempt===explanationKey && ai.error)) && <div className="md:text-right">
         <Feedback {...report}/>
-        {current && <Feedback error={ai.error}/>}
+        {explanationAttempt===explanationKey && <Feedback error={ai.error}/>}
       </div>}
-      {current?.explanation && !action.busy && !ai.busy && <article className="rounded-control bg-canvas p-4 md:max-xl:ml-auto md:max-xl:max-w-2xl" aria-labelledby="explanation-heading">
+      {explanation && !action.busy && !ai.busy && <article className="rounded-control bg-canvas p-4 md:max-xl:ml-auto md:max-xl:max-w-2xl" aria-labelledby="explanation-heading">
         <h3 id="explanation-heading">AI explanation</h3>
-        <p className="mt-2 break-words text-sm">{current.explanation.summary}</p>
-        {current.explanation.tradeoffs && <p className="mt-2 break-words text-sm"><strong>Tradeoffs.</strong> {current.explanation.tradeoffs}</p>}
-        {current.explanation.checks && <p className="mt-2 break-words text-sm"><strong>Checks before proceeding.</strong> {current.explanation.checks}</p>}
+        <p className="mt-2 break-words text-sm">{explanation.summary}</p>
+        {explanation.tradeoffs && <p className="mt-2 break-words text-sm"><strong>Tradeoffs.</strong> {explanation.tradeoffs}</p>}
+        {explanation.checks && <p className="mt-2 break-words text-sm"><strong>Checks before proceeding.</strong> {explanation.checks}</p>}
       </article>}
       {current ? <>
         {!current.highlighted.length && <p className="text-sm muted">No option meets all highlighting criteria.</p>}
         {!current.options.length && <p>No active candidates for this category.</p>}
-        {!!current.options.length && <div className="overflow-x-auto" tabIndex={0} aria-label="Comparison results table">
+        {!!current.options.length&&!visibleOptions.length&&<p role="status">No options match this filter. Choose All options to inspect the full comparison.</p>}
+        {!!visibleOptions.length && <div className="overflow-x-auto" tabIndex={0} aria-label="Comparison results table">
           <table className="preview-table"><thead><tr>
             <th scope="col">Option</th><th scope="col">Newly covered</th><th scope="col">Upfront / budget fit</th>
             <th scope="col">Lifecycle</th><th scope="col">Lifecycle per requester</th><th scope="col">Feasibility</th>
-          </tr></thead><tbody>{current.options.map(option=>{
+            {goal&&<th scope="col"><InfoHint label="About goal fit" content={<p>AI assessment of the selected goal using available evidence. Costs and requirements are checked separately.</p>}>
+              <span>Goal fit<span className="block text-xs break-words">{goal.name}</span></span>
+            </InfoHint></th>}
+          </tr></thead><tbody>{visibleOptions.map(({option,row})=>{
             const key=option.ids.join(',');
             return <tr key={key}>
               <td>{option.ids.length===1 ?
@@ -190,7 +230,7 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
                   onClick={()=>selectCandidate(option.ids[0])}>{label(option.ids[0])}</button> :
                 <strong>{option.ids.map(id=>label(id)).join(' + ')}</strong>}
                 {option.ids.some(id=>current.sites.find(site=>site.id===id)?.fixture) && <p className="text-xs muted">Illustrative demo assumptions</p>}
-                {current.highlighted.includes(key) && <p className="mt-1 text-xs font-bold text-brand">Lowest modeled cost per newly covered requester</p>}
+                {current.highlighted.includes(key) && <p className="mt-1 text-xs font-bold text-brand">Lowest modeled cost per newly covered requester{goal?' in the ordinary comparison':''}</p>}
                 {!!option.missing.length && <p className="mt-1 text-xs muted">Unknown: {[...new Set(option.missing.map(x=>x.key))].join(', ')}</p>}</td>
               <td>{option.count}{option.ids.length>1 && <p className="text-xs muted">{option.overlap} in overlapping radii, counted once</p>}</td>
               <td>{dollars(option.estimates.base.upfront)}<br/>{option.estimates.base.fits===null?'Unknown':option.estimates.base.fits?'Within budget':'Over budget'}
@@ -198,6 +238,7 @@ function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:Equi
                 <p className="text-xs muted">{dollars(option.estimates.low.upfront)} – {dollars(option.estimates.high.upfront)}</p></td>
               <td>{dollars(option.estimates.base.lifecycle)}<p className="text-xs muted">{dollars(option.estimates.low.lifecycle)} – {dollars(option.estimates.high.lifecycle)}</p></td>
               <td>{dollars(option.estimates.base.perRequester)}</td><td>{feasibilityLabels[option.feasibility]}</td>
+              {row&&<GoalFitCell row={row} comparison={current} label={option.ids.map(label).join(' + ')}/>}
             </tr>;
           })}</tbody></table>
         </div>}

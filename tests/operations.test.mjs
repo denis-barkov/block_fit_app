@@ -48,7 +48,8 @@ it('round-trips private data into fresh D1, excludes sessions and freezes AI wit
   const before=await getComparison(db,scenario);
   await restoreSnapshot(fresh,snapshot);
   await expect(restoreSnapshot(fresh,snapshot)).rejects.toThrow('empty target');
-  const {equipment_types,type_proposals,...legacyRecords}=snapshot.records;
+  const {equipment_types,type_proposals,program_goals,...legacyRecords}=snapshot.records;
+  legacyRecords.candidates=legacyRecords.candidates.map(({estimated_start,estimated_ready,...row})=>row);
   await expect(restoreSnapshot(fresh,{...snapshot,records:legacyRecords,version:'0.2.2',
     migration:'0005_resident_travel.sql'})).rejects.toThrow('empty target');
   expect(await inventory(fresh,null,'')).toEqual(await inventory(db,null,''));
@@ -75,6 +76,8 @@ it('upgrades a 0.0.6 snapshot with its existing saved location enabled',async()=
     delete snapshot.records.removed_locations;
     delete snapshot.records.equipment_types;
     delete snapshot.records.type_proposals;
+    delete snapshot.records.program_goals;
+    snapshot.records.candidates=snapshot.records.candidates.map(({estimated_start,estimated_ready,...row})=>row);
     for(const row of snapshot.records.locations) delete row.use_for_requests;
     await restoreSnapshot(old.env.DB,snapshot);
     expect(await old.env.DB.prepare('SELECT use_for_requests FROM locations').first('use_for_requests')).toBe(1);

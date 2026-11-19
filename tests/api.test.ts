@@ -175,6 +175,8 @@ describe('connected Worker API and D1',()=>{
       expect(unchanged).toEqual({...comparison,calculatedAt:unchanged.calculatedAt});
       responseBody.referencedOptionIds=[siteId,siteId];
       const explanation={...responseBody,referencedOptionIds:[siteId],highlightedOptionIds:[siteId]};
+      expect((await staff.send('/staff/explain','POST',ref)).status).toBe(429);
+      await env.DB.exec('UPDATE ai_staff_usage SET started=0 WHERE pending_until=0');
       expect(await (await staff.send('/staff/explain','POST',ref)).json()).toEqual(explanation);
       expect(await (await staff.send('/staff/compare','POST',scenario)).json()).toMatchObject({explanation});
       expect(openai).toHaveBeenCalledTimes(4);

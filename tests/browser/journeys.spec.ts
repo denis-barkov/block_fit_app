@@ -532,3 +532,96 @@ test('staff manages the catalog and corrects a resident proposal on narrow scree
     await Promise.all([resident.close(),visitor.close()]);
   }
 });
+
+test('staff saves a goal, evaluates and filters options, and clears the goal without changing inputs',async({page,browser,baseURL})=>{
+  const {staff}=credentials();
+  await allowFallback(page);
+  await page.goto('/staff');
+  await page.getByLabel('Email').fill(staff.email);
+  await page.getByLabel('Password',{exact:true}).fill(staff.password);
+  await page.getByRole('button',{name:'Sign in',exact:true}).click();
+  const table=page.getByRole('table');
+  await expect(table).toBeVisible();
+  const context=await browser.newPage({baseURL});
+  try {
+    await allowFallback(context);
+    await context.goto('/staff');
+    await context.getByLabel('Email').fill(staff.email);
+    await context.getByLabel('Password',{exact:true}).fill(staff.password);
+    await context.getByRole('button',{name:'Sign in',exact:true}).click();
+    await expect(context.getByRole('combobox',{name:'Program goal',exact:true})).toBeEnabled();
+
+    let evaluations=0,explanations=0;
+    let explanationFilter='';
+    await page.route('**/api/staff/goals/evaluate',async route=>{
+      evaluations++;
+      const request=route.request().postDataJSON();
+      const compare=await page.request.post('/api/staff/compare',{headers:{Origin:baseURL!},data:request.scenario});
+      const comparison=await compare.json() as {options:{ids:string[]}[]};
+      const prior=await page.request.post('/api/staff/goals/preview',{headers:{Origin:baseURL!},data:request});
+      const preview=await prior.json();
+      await route.fulfill({json:{...preview,evaluationKey:'a'.repeat(64),evaluation:{clarification:null,
+        assessments:comparison.options.map((option,index)=>({id:[...option.ids].sort().join(','),fit:index===0?'strong':'partial',
+          reason:'Illustrative site notes support this assessment.',evidence:['s1'],missing:['Confirm staging access'],conflict:null}))}}});
+    });
+    await page.route('**/api/staff/explain',async route=>{
+      explanations++;
+      explanationFilter=route.request().postDataJSON().goal?.filter;
+      await route.fulfill({json:{summary:'The goal filters the current comparison.',tradeoffs:'Review the modeled costs.',
+        checks:'Confirm the estimates.',highlightedOptionIds:[],referencedOptionIds:[]}});
+    });
+    const budget=page.getByLabel('Upfront budget (USD)');
+    await budget.fill('27000');
+    await page.getByRole('button',{name:'Apply assumptions'}).click();
+    await expect(table).toBeVisible();
+    await page.getByRole('button',{name:'Manage goals'}).click();
+    const editor=page.getByRole('dialog',{name:'Manage program goals'});
+    await editor.getByLabel('Short name').fill('Low disruption');
+    await editor.getByLabel('Description').fill('Favor straightforward mounting and limited disruption.');
+    await editor.getByLabel('Earliest project start (optional)').fill('2027-03-01');
+    await editor.getByLabel('Target completion (optional)').fill('2027-05-01');
+    await editor.getByLabel('Search equipment types').fill('Pull-up');
+    await editor.getByRole('checkbox',{name:'Pull-up bars'}).check();
+    await editor.getByRole('button',{name:'Close dialog'}).press('Escape');
+    await expect(editor.getByText('You have unsaved changes.',{exact:false})).toBeVisible();
+    await editor.getByRole('button',{name:'Keep editing'}).click();
+    await editor.getByRole('button',{name:'Save goal'}).click();
+    await expect(editor).toHaveCount(0);
+    await expect(page.getByRole('combobox',{name:'Program goal',exact:true}).locator('option:checked')).toHaveText('Low disruption');
+    await expect(context.getByRole('combobox',{name:'Program goal',exact:true})).toHaveValue('');
+    await expect(table.getByRole('columnheader',{name:/Goal fit/})).toBeVisible();
+    await expect(page.getByRole('region',{name:'Goal review'})).toContainText('Start on or after 2027-03-01');
+    expect(evaluations).toBe(0);
+    expect(explanations).toBe(0);
+    await page.getByRole('button',{name:'Evaluate goal'}).click();
+    const hint=table.getByRole('button',{name:/Goal evidence for/}).first();
+    await hint.press('Enter');
+    await expect(hint).toHaveAttribute('aria-expanded','true');
+    await expect(table.getByText('Illustrative site notes support this assessment.').first()).toBeVisible();
+    await hint.press('Escape');
+    await expect(hint).toHaveAttribute('aria-expanded','false');
+    await expect(hint).toBeFocused();
+    expect(evaluations).toBe(1);
+    expect(explanations).toBe(0);
+    await page.screenshot({path:test.info().outputPath('goal-table-1440.png'),animations:'disabled',fullPage:true});
+    await page.getByLabel('Filter by goal fit').selectOption('strong');
+    await expect(page.getByText('No options match this filter.',{exact:false})).toBeVisible();
+    await page.getByLabel('Option ordering').selectOption('fit');
+    await page.getByRole('button',{name:'Request AI explanation'}).click();
+    await expect(page.getByRole('heading',{name:'AI explanation'})).toBeVisible();
+    expect(explanationFilter).toBe('strong');
+    expect(evaluations).toBe(1);
+    expect(explanations).toBe(1);
+    await page.getByLabel('Filter by goal fit').selectOption('information');
+    await expect(page.getByRole('heading',{name:'AI explanation'})).toHaveCount(0);
+    await expect(table).toBeVisible();
+    await page.setViewportSize({width:390,height:844});
+    await noPageOverflow(page);
+    await page.getByRole('region',{name:'Goal review'}).screenshot({path:test.info().outputPath('goal-status-390.png'),animations:'disabled'});
+    await page.getByRole('button',{name:'Clear goal'}).click();
+    await expect(table.getByRole('columnheader',{name:/Goal fit/})).toHaveCount(0);
+    await expect(page.getByRole('region',{name:'Goal review'})).toHaveCount(0);
+    await expect(budget).toHaveValue('27000');
+    expect(evaluations).toBe(1);
+  } finally {await context.close();}
+});

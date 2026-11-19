@@ -18,4 +18,5 @@ export const limits = {
 export const ai = {
   daily: 150, inputTokens: 2000, outputTokens: 1000,
   cacheDays: 7, cacheEntries: 100, outputWords: 220, inputBytes: 12_000,
+  staffCooldownMs:60_000, reservationMs:120_000,
 };

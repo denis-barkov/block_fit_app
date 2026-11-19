@@ -6,19 +6,21 @@ import { loadPrompt } from './prompts';
 import { stmt } from './database';
 import type { Comparison } from './planning';
 import { problem, type Env } from './web';
-import { generate, fitsInput, hash, modelParameters } from './ai-gateway';
+import { generate, fitsInput, hash, modelParameters, type GenerationContext } from './ai-gateway';
+import type { goalExplanationContext } from './goal-evaluation';
 
 const providerExplanationSchema = explanationSchema.omit({highlightedOptionIds:true});
 const { $schema, ...outputSchema } = z.toJSONSchema(providerExplanationSchema);
 const schemaVersion = 3;
 const generation = {store:false,service_tier:'default',max_output_tokens:ai.outputTokens} as const;
 
-export function explanationRequest(env: Env, comparison: Comparison) {
+type GoalExplanation=ReturnType<typeof goalExplanationContext>;
+export function explanationRequest(env: Env, comparison: Comparison, goal?:GoalExplanation) {
   const content = loadPrompt('explain-investment-options',{output_word_limit:ai.outputWords});
   const snapshot = comparisonSnapshot(comparison);
   const payload = {
     ...modelParameters(env),
-    input:[{role:'developer',content},{role:'user',content:JSON.stringify(snapshot)}],
+    input:[{role:'developer',content},{role:'user',content:JSON.stringify(goal?{...snapshot,goalReview:goal}:snapshot)}],
     text:{format:{type:'json_schema',name:'comparison_explanation',strict:true,schema:outputSchema}},
   };
   return {payload,snapshot,generation};
@@ -49,9 +51,9 @@ function parseExplanation(content: string, snapshot: ReturnType<typeof compariso
   return {explanation,providerOutput} as const;
 }
 
-export async function cachedExplanation(env: Env, comparison: Comparison) {
+export async function cachedExplanation(env: Env, comparison: Comparison, goal?:GoalExplanation) {
   let request;
-  try { request = explanationRequest(env,comparison); }
+  try { request = explanationRequest(env,comparison,goal); }
   catch { return; }
   if (!fitsInput(request.payload)) return;
   const record = await stmt(env.DB,'SELECT result FROM ai_jobs WHERE key=? AND expires>? AND result IS NOT NULL',
@@ -59,12 +61,12 @@ export async function cachedExplanation(env: Env, comparison: Comparison) {
   return record ? parseExplanation(record.result,request.snapshot).explanation : undefined;
 }
 
-export async function explain(env: Env, comparison: Comparison, provider: typeof fetch = fetch, requestId?: string) {
+export async function explain(env: Env, comparison: Comparison, provider: typeof fetch = fetch, requestId?: string, context?:GenerationContext,goal?:GoalExplanation) {
   let request;
-  try { request = explanationRequest(env,comparison); }
+  try { request = explanationRequest(env,comparison,goal); }
   catch { problem(503,'This comparison could not be prepared for AI. Comparisons and exports still work.'); }
   const result=await generate(env,{
-    ...request,key:await explanationCacheKey(comparison.revision,request),revision:comparison.revision,
+    ...request,key:await explanationCacheKey(comparison.revision,request),revision:comparison.revision,context,
     cacheMs:ai.cacheDays*86_400_000,parse:content=>parseExplanation(content,request.snapshot),
   },provider,requestId);
   return result.value;

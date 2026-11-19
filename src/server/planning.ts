@@ -57,7 +57,8 @@ export function compare(scenario: Scenario, demand: DemandOrigin[], existing: Co
   };
   const selected = scenario.selected.map(id => candidates.find(site => site.id === id));
   if (selected.some(site => !site || site.feasibility === 'excluded')) return null;
-  const options = [...candidates.map(site => calculateOption([site])),
+  const scoped=scenario.selectedOnly?candidates.filter(site=>scenario.selected.includes(site.id)):candidates;
+  const options = [...scoped.map(site => calculateOption([site])),
     ...(selected.length > 1 ? [calculateOption(selected as Candidate[])] : [])];
   const qualified = options.filter(option => !highlightExclusions(option).length);
   // Compare integer products to preserve ties without rounding cost per requester.
@@ -96,9 +97,9 @@ export const screening = 'Suitable for comparison means the option passed an ana
 export const ranking = 'Among fully costed, suitable options with positive coverage and base upfront budget fit, the lowest base lifecycle cost per newly covered requester is highlighted. Exact ties share the highlight.';
 export const feasibilityLabels = {unreviewed:'Unreviewed','suitable-for-comparison':'Suitable for comparison',excluded:'Excluded'};
 export const interpretation = 'Recorded participation does not measure population need or verify unique people. Unknown inventory may overstate unmet demand. This comparison does not establish realized savings, land availability, or installation approval.';
-const clean = (value: string) => value.replace(/[\r\n\u0000-\u001f\u007f]/g, ' ').replace(/[\\`*_{}\[\]()#+.!|<>~]/g, '\\$&');
+export const clean = (value: string) => value.replace(/[\r\n\u0000-\u001f\u007f]/g, ' ').replace(/[\\`*_{}\[\]()#+.!|<>~]/g, '\\$&');
 const money = (cents: number | null) => cents === null ? 'N/A' : new Intl.NumberFormat('en-US', {style:'currency',currency:'USD'}).format(cents/100);
-export function makeBrief(result: Comparison, explanation?: import('../contracts').Explanation) {
+export function makeBrief(result: Comparison, explanation?: import('../contracts').Explanation, goalSection:string[] = []) {
   const { scenario } = result;
   const syntheticCount=result.origins.filter(origin=>origin.synthetic).length;
   const lines = [
@@ -113,7 +114,7 @@ export function makeBrief(result: Comparison, explanation?: import('../contracts
     'Baseline uses currently listed, verified, usable equipment with confirmed public access.',
     ...result.inventorySources.map(source => `- Inventory source: ${clean(source)}`),
     'Costs are illustrative scenarios in undiscounted constant dollars. Replacement events at horizon end are excluded.',
-    interpretation, '',
+    interpretation, '', ...goalSection,
   ];
   for (const option of result.options) {
     const sites = result.sites.filter(site => option.ids.includes(site.id));
@@ -130,6 +131,8 @@ export function makeBrief(result: Comparison, explanation?: import('../contracts
         `  - ${costKeys.map(key => `${key} low/base/high ${levels.map(level => money(site.costs[key]?.[level] ?? null)).join(' / ')}`).join('; ')}`,
         `  - Replacement plan: ${site.costs.replacementPlan} | Interval: ${site.costs.interval ?? 'N/A'} years`);
       if (site.notes) lines.push(`  - Notes: ${clean(site.notes)}`);
+      if (site.estimatedStart||site.estimatedReady) lines.push(
+        `  - Planning estimates: start ${site.estimatedStart??'unknown'} | ready ${site.estimatedReady??'unknown'}`);
       if (site.projectUrl) lines.push(`  - [Public project reference](<${encodeURI(site.projectUrl).replace(/[<>]/g, encodeURIComponent)}>)`);
     }
     if (option.missing.length) lines.push(`- Missing inputs: ${[...new Set(option.missing.map(entry => entry.key))].join(', ')}`);

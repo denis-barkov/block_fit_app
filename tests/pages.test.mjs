@@ -105,6 +105,7 @@ it('derives the canonical URL from the owned Pages project and packages a privat
       'investment-comparison/explain-investment-options.txt',
       'resident-travel/choose-destinations.txt',
       'resident-travel/explore-destination.txt',
+      'investment-goals/evaluate-program-goal.txt',
     ]) {
       const prompt=readFileSync('prompts/'+filename,'utf8');
       const packagedPrompt=readdirSync(workerOutput).find(name=>name.endsWith('-'+filename.split('/').at(-1)));

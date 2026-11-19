@@ -2,7 +2,7 @@ import {existsSync,readFileSync,writeFileSync} from 'node:fs';
 import {randomBytes} from 'node:crypto';
 import {join} from 'node:path';
 import {createAuth} from '../src/server/auth.ts';
-import {demoCandidates,demoDemand,demoEquipment,demoParks,demoTypeProposals,demoVersion,illustrative,legacyDemandIds,simulated} from '../config/demo.ts';
+import {demoCandidates,demoDemand,demoEquipment,demoGoalCandidateUpdates,demoParks,demoProgramGoals,demoTypeProposals,demoVersion,illustrative,legacyDemandIds,simulated} from '../config/demo.ts';
 import {pilot} from '../config/settings.ts';
 import {typeNameKey} from '../src/contracts.ts';
 
@@ -102,4 +102,28 @@ export async function seedLocalTypeProposals(db,env,dir) {
     (id,owner,name,name_key,description,submitted_at,submission_key,lat,lng,note,suggestion)
     SELECT ?,?,?,?,?,?,?,?,?,'','' WHERE NOT EXISTS(SELECT 1 FROM equipment_types WHERE name_key=?)
     ON CONFLICT DO NOTHING`).bind(id,owner,name,typeNameKey(name),description,now,id,pilot.center.lat,pilot.center.lng,typeNameKey(name))));
+}
+
+export async function seedLocalGoals(db,env) {
+  if(env.DEPLOYMENT!=='local') throw new Error('Goal presets are local only.');
+  if(await db.prepare(versionQuery).first('demo_version')!==demoVersion) {
+    throw new Error('Install the current local demo dataset before adding goal examples.');
+  }
+  const first=demoProgramGoals[0].id;
+  const pristine=safe=>Object.entries(safe).map(([key])=>`${key} IS ?`).join(' AND ');
+  const date=new Date().toISOString();
+  await db.batch([
+    ...demoGoalCandidateUpdates.map(([id,note,start,ready])=>{
+      const original=records.candidates.find(candidate=>candidate.id===id);
+      return db.prepare(`UPDATE candidates SET notes=?,estimated_start=?,estimated_ready=?
+        WHERE ${pristine(original)} AND estimated_start IS NULL AND estimated_ready IS NULL
+        AND NOT EXISTS(SELECT 1 FROM program_goals WHERE id=?)`)
+        .bind('Illustrative schedule and site notes. '+note,start,ready,...Object.values(original),first);
+    }),
+    ...demoProgramGoals.map(goal=>db.prepare(`INSERT INTO program_goals
+      (id,name,description,earliest_start,target_completion,allowed_types,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`)
+      .bind(goal.id,goal.name,'Illustrative demo. '+goal.description,goal.earliestStart,goal.targetCompletion,
+        JSON.stringify(goal.allowedTypes),date,date)),
+  ]);
 }

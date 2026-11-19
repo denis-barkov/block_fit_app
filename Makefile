@@ -1,4 +1,4 @@
-.PHONY: seed-proposals seed-update accounts-provision help setup dev build check test test-browser package db-migrate seed staff-create password-reset session-revoke provision deploy snapshot restore suspend resume destroy smoke-prod reset-local benchmark-auth ai-carry-forward
+.PHONY: seed-goals seed-proposals seed-update accounts-provision help setup dev build check test test-browser package db-migrate seed staff-create password-reset session-revoke provision deploy snapshot restore suspend resume destroy smoke-prod reset-local benchmark-auth ai-carry-forward
 ENV ?=
 NODE = node --disable-warning=ExperimentalWarning
 TASK = $(NODE) scripts/run.mjs
@@ -11,6 +11,7 @@ help:
 	  'make package ENV=local          Dry-run the Worker build and package the Pages ingress' \
 	  'make check / test / test-browser Verify types, domain/API and browser behavior' \
 	  'make db-migrate / seed ENV=...   Apply migrations or initialize demo data' \
+	  'make seed-goals ENV=local       Add illustrative saved goals and schedule estimates' \
 	  'make seed-proposals ENV=local   Add illustrative pending proposals to the local demo' \
 	  'make staff-create / password-reset / session-revoke ENV=... Manage accounts' \
 	  'make seed-update ENV=... [APPLY=yes] Preview or apply the demo fixture update' \
@@ -28,7 +29,7 @@ setup:
 	npm ci --no-audit --no-fund
 	$(TASK) setup local
 
-dev build package db-migrate seed seed-proposals staff-create password-reset session-revoke suspend resume destroy smoke-prod ai-carry-forward:
+dev build package db-migrate seed seed-goals seed-proposals staff-create password-reset session-revoke suspend resume destroy smoke-prod ai-carry-forward:
 	$(TASK) $@ "$(ENV)"
 
 provision deploy:

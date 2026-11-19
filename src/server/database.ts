@@ -12,7 +12,7 @@ export async function rows<T>(db: D1Database, sql: string, ...values: Bind[]) {
 const equipmentColumns = `e.id,e.name,e.category,e.lat,e.lng,e.park_id AS parkId,e.condition,e.access,
   e.source,e.verified_on AS verifiedOn,e.visible,e.fixture`;
 const parkColumns = 'id,name,lat,lng,external_id AS externalId,source,hours,city_maintained AS cityMaintained,fixture';
-const candidateColumns = 'e.id,e.name,e.category,e.lat,e.lng,e.park_id AS parkId,e.feasibility,e.costs,e.notes,e.project_url AS projectUrl,e.fixture';
+const candidateColumns = 'e.id,e.name,e.category,e.lat,e.lng,e.park_id AS parkId,e.feasibility,e.costs,e.notes,e.project_url AS projectUrl,e.fixture,e.estimated_start AS estimatedStart,e.estimated_ready AS estimatedReady';
 const typeReference='t.name AS categoryName,t.active AS categoryActive';
 const withType='JOIN equipment_types t ON t.id=e.category';
 type EquipmentRow = Omit<Equipment,'visible'|'fixture'|'categoryActive'> & { visible: number; fixture:number; categoryActive:number };
@@ -59,10 +59,14 @@ export async function requests(db: D1Database, owner: string, id?:string) {
   }));
 }
 
+export const comparisonRevisionSQL=(testWorkspace=false)=>testWorkspace
+  ?'SELECT value + (SELECT test_revision FROM operations WHERE id=1) AS value FROM revision WHERE id=1'
+  :'SELECT value FROM revision WHERE id=1';
+
 export async function getComparison(db: D1Database, scenario: Scenario, testWorkspace=false): Promise<Comparison | 'limit' | 'inactive' | null> {
   // D1 batches run transactionally, so the revision and all records come from the same snapshot.
   const [revision, type, demand, existing, sites] = await db.batch([
-    stmt(db, 'SELECT revision.value + ? * operations.test_revision AS value FROM revision JOIN operations ON operations.id=1 WHERE revision.id=1',Number(testWorkspace)),
+    stmt(db,comparisonRevisionSQL(testWorkspace)),
     stmt(db,'SELECT name FROM equipment_types WHERE id=? AND active=1',scenario.category),
     stmt(db,`SELECT 'r:'||d.owner AS id,d.lat,d.lng,0 AS synthetic FROM demand d JOIN user u ON u.id=d.owner
       WHERE d.category=? AND d.status='recorded' AND coalesce(u.purpose='automated-test',0)=?

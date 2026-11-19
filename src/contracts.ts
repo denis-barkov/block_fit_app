@@ -68,20 +68,25 @@ export const costs = z.object({
   replacementPlan: z.enum(['none','scheduled','unknown']), source: text,
 }).strict();
 export type Costs = z.infer<typeof costs>;
+export const optionalDate=z.preprocess(value=>value===undefined||value===''?null:value,z.iso.date().nullable());
 export const candidateInput = namedPoint.extend({
   category, parkId: id.nullable(), feasibility: z.enum(['unreviewed','suitable-for-comparison','excluded']),
-  costs, notes: text, projectUrl: httpUrl.nullable(),
-}).strict();
+  costs, notes: text, projectUrl: httpUrl.nullable(), estimatedStart:optionalDate, estimatedReady:optionalDate,
+}).strict().refine(value=>!value.estimatedStart||!value.estimatedReady||value.estimatedStart<=value.estimatedReady,
+  'Estimated start must be on or before the ready date.');
 export const scenarioInput = z.object({
   category, radius: z.number().int().min(planning.minRadius).max(planning.maxRadius),
   budget: cents, horizon: z.number().int().min(1).max(planning.maxHorizon),
   selected: z.array(id).max(planning.combination).refine(ids => new Set(ids).size === ids.length),
-}).strict();
+  selectedOnly:z.boolean().optional(),
+}).strict().refine(value=>!value.selectedOnly||value.selected.length>0,'Select a candidate for a selected-sites comparison.');
 export type Scenario = z.infer<typeof scenarioInput>;
 export type Park = z.infer<typeof parkInput> & { id: string; fixture?: boolean };
 type TypeReference={categoryName:string;categoryActive:boolean};
 export type Equipment = z.infer<typeof equipmentInput> & TypeReference & { id: string; fixture?: boolean };
-export type Candidate = z.infer<typeof candidateInput> & TypeReference & { id: string; fixture?: boolean };
+type CandidateFields=z.infer<typeof candidateInput>;
+export type Candidate = Omit<CandidateFields,'estimatedStart'|'estimatedReady'> & TypeReference &
+  { id:string;fixture?:boolean;estimatedStart?:string|null;estimatedReady?:string|null };
 export type PublicEquipment = Omit<Equipment, 'parkId' | 'visible'> & { park: { name: string; hours: string; cityMaintained: boolean } | null };
 export type Demand = z.infer<typeof requestInput> & TypeReference & Coordinate & {
   id: string; status: 'recorded' | 'withdrawn'; createdAt: string; confirmedAt: string;

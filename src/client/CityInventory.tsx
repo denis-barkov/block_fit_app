@@ -83,6 +83,7 @@ function InventoryForm({kind,record,parks,types,close,save}: {
           return [key,Object.fromEntries(levels.map((level,index)=>[level,Math.round(Number(entered[index])*100)]))];
         }));
         await save({...located,feasibility:str('feasibility'),notes:str('notes'),projectUrl:str('projectUrl')||null,
+          estimatedStart:str('estimatedStart')||null,estimatedReady:str('estimatedReady')||null,
           costs:{...ranges,replacementPlan,interval:replacementPlan==='scheduled'&&str('interval')?Number(str('interval')):null,source:str('costSource')}});
       });
     }
@@ -123,6 +124,11 @@ function InventoryForm({kind,record,parks,types,close,save}: {
           <Field label="Public City project URL"><input name="projectUrl" type="url" defaultValue={candidate?.projectUrl||''} maxLength={limits.text}/></Field>
         </div>
         <Field label="Site notes"><textarea name="notes" defaultValue={candidate?.notes} maxLength={limits.text}/></Field>
+        <p className="text-sm muted">Schedule dates are planning estimates.</p>
+        <div className="field-grid">
+          <Field label="Estimated start date"><input type="date" name="estimatedStart" defaultValue={candidate?.estimatedStart??''}/></Field>
+          <Field label="Estimated ready date"><input type="date" name="estimatedReady" defaultValue={candidate?.estimatedReady??''}/></Field>
+        </div>
         <h3>Cost assumptions in USD</h3><p className="text-sm muted">Enter low, base, and high values. Empty ranges are unknown.</p>
         {costKeys.map(key=><fieldset key={key} hidden={key==='replacement'&&replacementPlan==='none'}>
           <legend className="text-sm font-bold">{costNames[key]}</legend>

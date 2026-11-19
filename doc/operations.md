@@ -18,6 +18,10 @@ Migration `0006_equipment_catalog.sql` retains the IDs `pull-up`, `parallel`, an
 - **Local.** Use the running release’s `make suspend ENV=local` and `make snapshot ENV=local SNAPSHOT=.blockfit/before-catalog.json` before upgrading a populated store. Stop the old dev server. In 0.3.0, verify the backup in a fresh directory with `BLOCKFIT_STORE=.blockfit/catalog-restore-qa make restore ENV=local SNAPSHOT=.blockfit/before-catalog.json`. For the intended local store, run `make db-migrate ENV=local`, `make resume ENV=local`, and `make dev ENV=local`. Optionally run `make seed-proposals ENV=local` for illustrative review examples. Repeating it preserves prior review decisions.
 - **Production, once authorized.** Use the deployed release’s tooling for `make suspend ENV=prod` and `make snapshot ENV=prod SNAPSHOT=.blockfit/prod-before-catalog.json` after in-flight writes drain. Restore and verify that snapshot locally with the 0.3.0 tooling. Verify the intended target with `make deploy ENV=prod DRY_RUN=yes`. While traffic is suspended, run `make db-migrate ENV=prod`, then `make deploy ENV=prod`. Resume with `make resume ENV=prod` and verify with `make smoke-prod ENV=prod`. Keep the pre-upgrade snapshot private. [D1 migrations](https://developers.cloudflare.com/d1/reference/migrations/)
 
+## Upgrade or restore the goal schema
+
+Migration `0007_program_goals.sql` adds nullable candidate schedule estimates and shared goals. Existing schedules start blank. A private 0.4.0 snapshot preserves goals, deletion markers, schedules, and spend. The restore workflow accepts 0.3.0 snapshots and supplies blank schedules. AI results and staff in-flight or cooldown records are transient. Verify the upgrade with `make db-migrate ENV=local` on a private disposable copy and test restore with `BLOCKFIT_STORE=.blockfit/goal-restore-qa make restore ENV=local SNAPSHOT=.blockfit/before-goals.json`.
+
 ## Production rollout
 
 1. Set the target and recovery contact in `.env.prod`. Run `make provision ENV=prod DRY_RUN=yes` to check account ownership and names. Obtain the scoped Resource Tagging token if using Wrangler OAuth.

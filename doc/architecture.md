@@ -6,7 +6,7 @@ flowchart LR
     pages["Cloudflare Pages<br/>Assigned pages.dev hostname"]
     worker["Private Cloudflare Worker<br/>Application, Better Auth and static assets"]
     d1["Cloudflare D1"]
-    openai["OpenAI API<br/>Optional staff explanations and resident travel suggestions"]
+    openai["OpenAI API<br/>Goal assessment, staff explanations, resident travel suggestions"]
 
     browser <-->|"HTTPS, same-origin requests and cookies"| pages
     pages <-->|"Private HTTP service binding"| worker
@@ -25,3 +25,7 @@ The Make workflow manages one Pages project, Worker and D1 database in the selec
 D1 owns equipment type IDs and their current labels. Equipment, candidates, resident demand, and synthetic demand reference those IDs. Active type selection is validated where records are written. Public inventory can still display installed equipment associated with inactive types. Catalog mutations increment the comparison revision, which also invalidates the existing AI caches.
 
 A proposal holds the owner, submitted name and description, and the pending request intent with its own location and optional suggested installation site. The staff queue receives only review fields. Approval uses one D1 batch to create a type when necessary, create or find the resident’s ordinary request, and record the decision. The existing partial unique index enforces one recorded request per owner and type. Pending intents remain outside the demand table. After any decision or withdrawal, the proposal keeps its review history and clears the copy of the private intent. [D1 batch transactions](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch)
+
+## Program goals
+
+D1 stores shared, versioned goals with stable catalog IDs. The selected goal, filters, and order belong to the current staff view. Candidate records have optional date-only estimates. The comparison computes requirements and eligibility for each site and combination. The AI gateway sends qualitative assessment data with precomputed coverage and cost figures, then validates the complete option set and evidence references. Staff evaluation and Explain share the reservation and spending ledger. The gateway checks the comparison and goal version at reservation and settlement. Cached evaluations are reused across filters, and explanations are keyed to the exact view. [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
