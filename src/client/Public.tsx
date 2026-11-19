@@ -36,44 +36,25 @@ export default function Public({request}: {request?: (category:Category)=>void})
   function submit(event:FormEvent) {event.preventDefault();setQuery(search.trim());}
   return <main>
     <section className="border-b border-line bg-white">
-      <div className="shell grid gap-6 py-10 md:grid-cols-[2fr_1fr] md:items-end md:py-14">
+      <div className="shell grid gap-4 py-6 md:grid-cols-[2fr_1fr] md:items-end md:gap-6 md:py-10 xl:py-14">
         <div><p className="eyebrow mb-3">Explore the {pilot.name} pilot</p>
           <h1>Find outdoor fitness equipment.</h1>
-          <p className="mt-3 max-w-2xl text-lg muted">See what’s nearby, check what’s been verified, and tell us what’s missing.</p></div>
+          <p className="mt-3 max-w-2xl muted md:text-lg">See what’s nearby, check what’s been verified, and tell us what’s missing.</p></div>
         <p className="border-l-2 border-brand pl-4 text-sm muted">Equipment and locations in this pilot are illustrative. Verify conditions before visiting.</p>
       </div>
     </section>
     <div className="shell space-y-5 py-6">
-      <form className="panel grid items-end gap-3 md:grid-cols-[1fr_1.5fr_auto]" onSubmit={submit}>
+      <form className="panel grid grid-cols-2 items-end gap-3 md:grid-cols-[1fr_1.5fr_auto]" onSubmit={submit}>
         <Field label="Equipment type"><Categories all value={category} onChange={setCategory}/></Field>
         <Field label="Site or park name"><input maxLength={limits.shortText} value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by name"/></Field>
-        <button className="button primary">Find equipment</button>
+        <button className="button primary col-span-2 md:col-span-1">Find equipment</button>
       </form>
       <div className="split">
-        <section className="panel" aria-busy={loading}>
-          <h2>Equipment listings</h2>
-          <p className="mb-3 text-sm muted" role="status">{loading?'Loading equipment…':`${results.length} listed locations`}</p>
-          <Feedback error={error}/>{error && <button className="button" onClick={()=>setRetry(retry+1)}>Retry search</button>}
-          {!error && !loading && !results.length && <p>No matching equipment is listed. Try a different site name or equipment type.</p>}
-          <ul className="space-y-2">
-            {sorted.map(({item,distance})=><li key={item.id}>
-              <button className={`w-full rounded-control border p-3 text-left ${selected===item.id?'border-brand bg-mint':'border-line bg-white hover:bg-canvas'}`}
-                onClick={()=>setSelected(item.id)} aria-pressed={selected===item.id}>
-                <span className="block font-bold">{item.name}</span>
-                <span className="block text-sm muted">{categories[item.category]} · {item.park?.name||'Standalone equipment'}</span>
-                <span className={`tag mt-2 ${item.verifiedOn?'':'unverified'}`}>{item.fixture && item.verifiedOn?'Simulated verification':item.verifiedOn?'Verification recorded':'Unverified'}</span>
-                {item.access!=='public' && <span className="tag unverified ml-2">{item.access==='restricted'?'Restricted access':'Public access unknown'}</span>}
-                {item.fixture && <span className="ml-2 text-xs muted">Illustrative demo equipment</span>}
-                {distance!==null && <span className="ml-2 text-xs muted">{Math.round(distance)} m straight-line</span>}
-              </button>
-            </li>)}
-          </ul>
-        </section>
-        <section className="panel space-y-4">
+        <section className="panel space-y-4 xl:col-start-2 xl:row-start-1" aria-labelledby="neighborhood-map">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2>Neighborhood map</h2>
+            <h2 id="neighborhood-map" className="text-lg md:text-xl">Neighborhood map</h2>
             <div className="flex flex-wrap gap-2">
-              <button className="button" aria-pressed={pick} onClick={()=>setPick(!pick)}>{pick?'Cancel pin selection':'Set reference pin'}</button>
+              <button className="button max-md:px-2.5" aria-pressed={pick} onClick={()=>setPick(!pick)}>{pick?'Cancel pin selection':'Set reference pin'}</button>
               {reference && <button className="button" onClick={()=>setReference(null)}>Clear reference</button>}
             </div>
           </div>
@@ -96,6 +77,25 @@ export default function Public({request}: {request?: (category:Category)=>void})
               {item.park?.cityMaintained && <a className="button" target="_blank" rel="noreferrer" href={maintenance}>Report a City park problem ↗</a>}
             </div>
           </article>}
+        </section>
+        <section className="panel xl:col-start-1 xl:row-start-1" aria-labelledby="equipment-listings" aria-busy={loading}>
+          <h2 id="equipment-listings">Equipment listings</h2>
+          <p className="mb-3 text-sm muted" role="status">{loading?'Loading equipment…':`${results.length} listed locations`}</p>
+          <Feedback error={error}/>{error && <button className="button" onClick={()=>setRetry(retry+1)}>Retry search</button>}
+          {!error && !loading && !results.length && <p>No matching equipment is listed. Try a different site name or equipment type.</p>}
+          <ul className="space-y-2">
+            {sorted.map(({item,distance})=><li key={item.id}>
+              <button className={`w-full rounded-control border p-3 text-left ${selected===item.id?'border-brand bg-mint':'border-line bg-white hover:bg-canvas'}`}
+                onClick={()=>setSelected(item.id)} aria-pressed={selected===item.id}>
+                <span className="block font-bold">{item.name}</span>
+                <span className="block text-sm muted">{categories[item.category]} · {item.park?.name||'Standalone equipment'}</span>
+                <span className={`tag mt-2 ${item.verifiedOn?'':'unverified'}`}>{item.fixture && item.verifiedOn?'Simulated verification':item.verifiedOn?'Verification recorded':'Unverified'}</span>
+                {item.access!=='public' && <span className="tag unverified ml-2">{item.access==='restricted'?'Restricted access':'Public access unknown'}</span>}
+                {item.fixture && <span className="ml-2 text-xs muted">Illustrative demo equipment</span>}
+                {distance!==null && <span className="ml-2 text-xs muted">{Math.round(distance)} m straight-line</span>}
+              </button>
+            </li>)}
+          </ul>
         </section>
       </div>
       {request && <section className="panel flex flex-wrap items-center justify-between gap-4">

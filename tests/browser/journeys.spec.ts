@@ -16,7 +16,7 @@ async function allowFallback(page:Page) {
 async function noPageOverflow(page:Page) {
   expect(await page.locator('html').evaluate(node=>node.scrollWidth<=node.clientWidth)).toBe(true);
 }
-test('public discovery stays operable on desktop and tablet when the map cannot load',async({page})=>{
+test('public discovery keeps the map ahead of listings on smaller screens and supports fallback',async({page})=>{
   await allowFallback(page);
   await page.goto('/');
   await expect(page.getByRole('heading',{name:'Find outdoor fitness equipment.'})).toBeVisible();
@@ -27,9 +27,21 @@ test('public discovery stays operable on desktop and tablet when the map cannot 
   await page.getByLabel('Site or park name').fill('missing fixture');
   await page.getByRole('button',{name:'Find equipment',exact:true}).click();
   await expect(page.getByText('No matching equipment is listed.',{exact:false})).toBeVisible();
-  for (const width of [1440,768,390]) {
+  const mapPanel=page.getByRole('region',{name:'Neighborhood map'});
+  const listings=page.getByRole('region',{name:'Equipment listings'});
+  const search=page.getByRole('button',{name:'Find equipment',exact:true});
+  for (const width of [1440,1024,768,390]) {
     await page.setViewportSize({width,height:900});
     await noPageOverflow(page);
+    const map=await mapPanel.boundingBox();
+    const list=await listings.boundingBox();
+    const filter=await search.boundingBox();
+    expect(map!.y).toBeGreaterThan(filter!.y+filter!.height);
+    if(width<1200) expect(map!.y+map!.height).toBeLessThan(list!.y);
+    else {
+      expect(map!.x).toBeGreaterThan(list!.x+list!.width);
+      expect(map!.y).toBe(list!.y);
+    }
   }
 });
 test('map pin and list share selection with an offline vector style',async({page})=>{
@@ -38,6 +50,10 @@ test('map pin and list share selection with an offline vector style',async({page
   }}));
   await page.goto('/');
   const map=page.getByLabel('Public equipment map');
+  for(const width of [1440,768,390]) {
+    await page.setViewportSize({width,height:900});
+    await page.screenshot({path:test.info().outputPath(`public-map-${width}.png`)});
+  }
   const bench=map.getByRole('button',{name:'Standalone sit-up bench'});
   await expect(bench).toBeVisible();
   await bench.click();
@@ -79,6 +95,17 @@ test('mobile registration preserves the selected category and persists the resid
   await expect(page.getByText('Request recorded.')).toBeVisible();
   await page.reload();
   await expect(page.getByText('Initial note')).toBeVisible();
+  const account=page.getByRole('button',{name:'Account',exact:true});
+  await expect(account).toHaveText('MT');
+  await account.press('Enter');
+  const profile=page.getByRole('dialog',{name:'Account'});
+  await expect(profile).toContainText('Mobile test');
+  await expect(profile).toContainText('browser-resident@blockfit.example');
+  await expect(profile.getByRole('button',{name:'Change password'})).toBeVisible();
+  await profile.screenshot({path:test.info().outputPath('resident-account.png')});
+  await page.keyboard.press('Escape');
+  await expect(profile).toHaveCount(0);
+  await expect(account).toBeFocused();
   await page.getByRole('button',{name:'Edit request'}).click();
   dialog=page.getByRole('dialog');
   await dialog.getByLabel('Note (optional)').fill('Edited note');
@@ -109,6 +136,25 @@ test('staff can compare and download on desktop and manage inventory on mobile',
   await expect(page.getByRole('navigation',{name:'Staff navigation'})).toContainText('Manage inventory');
   await expect(page.getByText('My requests',{exact:true})).toHaveCount(0);
   const map=page.getByRole('region',{name:'Staff coverage map'});
+  const assumptions=page.getByRole('form',{name:/Equipment and assumptions/});
+  await expect(map).toBeVisible();
+  for(const width of [768,390]) {
+    await page.setViewportSize({width,height:844});
+    const form=await assumptions.boundingBox();
+    expect((await map.boundingBox())!.y).toBeGreaterThan(form!.y+form!.height);
+  }
+  await map.screenshot({path:test.info().outputPath('staff-map-mobile.png')});
+  await page.setViewportSize({width:1440,height:1000});
+  const account=page.getByRole('button',{name:'Account',exact:true});
+  await expect(account).toHaveText(/^[A-Z]{1,2}$/);
+  await account.press('Enter');
+  const profile=page.getByRole('dialog',{name:'Account'});
+  await expect(profile).toContainText('City staff');
+  await expect(profile).toContainText(staff.email);
+  await expect(profile.getByRole('button',{name:'Change password'})).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(profile).toHaveCount(0);
+  await expect(account).toBeFocused();
   await map.getByRole('button',{name:/Central courtyard A/}).click();
   await expect(page.getByRole('article',{name:'Candidate details'})).toContainText('Central courtyard A');
   await page.getByRole('button',{name:'Add to combination'}).click();
@@ -144,10 +190,23 @@ test('staff can compare and download on desktop and manage inventory on mobile',
   await expect(explanation).toContainText('Central courtyard A leads');
   await expect(explanation).toContainText('<img src=x onerror=alert(1)>');
   await expect(explanation.locator('img')).toHaveCount(0);
-  await explanation.screenshot({path:test.info().outputPath('explanation-desktop.png')});
-  await page.setViewportSize({width:390,height:844});
-  await noPageOverflow(page);
-  await explanation.screenshot({path:test.info().outputPath('explanation-mobile.png')});
+  const comparisonPanel=page.getByRole('region',{name:/Compare investment options/});
+  await expect(comparisonPanel).not.toContainText('Export for review');
+  for(const width of [1440,768,390]) {
+    await page.setViewportSize({width,height:844});
+    await noPageOverflow(page);
+    const action=await comparisonPanel.getByRole('button',{name:'Request AI explanation'}).boundingBox();
+    const card=await explanation.boundingBox();
+    const table=await comparisonPanel.getByRole('table').boundingBox();
+    expect(card!.y).toBeGreaterThan(action!.y+action!.height);
+    expect(card!.y+card!.height).toBeLessThan(table!.y);
+    if(width>=768) expect(Math.abs(card!.x+card!.width-action!.x-action!.width)).toBeLessThan(2);
+    if(width===1440) {
+      expect(Math.abs(card!.x-table!.x)).toBeLessThan(2);
+      expect(Math.abs(card!.width-table!.width)).toBeLessThan(2);
+    }
+    await comparisonPanel.screenshot({path:test.info().outputPath(`comparison-${width}.png`)});
+  }
   await page.getByLabel('Planning horizon (years)').fill('12');
   await expect(explanation).toHaveCount(0);
   await page.getByRole('button',{name:'Apply assumptions'}).click();
@@ -160,6 +219,7 @@ test('staff can compare and download on desktop and manage inventory on mobile',
   await noPageOverflow(page);
   await page.getByRole('link',{name:'View public site'}).click();
   await expect(page.getByRole('link',{name:'Return to City workspace'})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Account',exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:/Request .*equipment/})).toHaveCount(0);
   await expect(page.getByRole('link',{name:'My requests'})).toHaveCount(0);
   await page.getByRole('link',{name:'Return to City workspace'}).click();

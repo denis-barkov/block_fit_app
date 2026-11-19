@@ -81,15 +81,17 @@ function ComparisonPage({testWorkspace}: {testWorkspace:boolean}) {
       <p className="mt-2 max-w-3xl muted">Compare candidate sites against recorded equipment demand, existing coverage, an upfront budget, and ongoing costs.</p></header>
     {testWorkspace && <p className="tag">Isolated automated-test workspace</p>}
     <div className="split">
-      <form id="comparison-assumptions" className="panel space-y-3" onSubmit={apply}>
-        <h2>1. Equipment and assumptions</h2>
-        <Field label="Equipment type"><select disabled={action.busy} value={scenario.category} onChange={event=>select(event.target.value as Category)}>{Object.entries(categories).map(([key,name])=><option value={key} key={key}>{name}</option>)}</select></Field>
-        <Field label="Straight-line radius (m)"><input type="number" min={planning.minRadius} max={planning.maxRadius}
-          value={Number.isNaN(scenario.radius)?'':scenario.radius} required onChange={e=>setScenario({...scenario,radius:e.target.valueAsNumber})}/></Field>
-        <Field label="Upfront budget (USD)"><input type="number" step=".01" min="0" max={planning.maxBudget/100}
-          value={Number.isNaN(scenario.budget)?'':scenario.budget/100} required onChange={e=>setScenario({...scenario,budget:Math.round(e.target.valueAsNumber*100)})}/></Field>
-        <Field label="Planning horizon (years)"><input type="number" min="1" max={planning.maxHorizon}
-          value={Number.isNaN(scenario.horizon)?'':scenario.horizon} required onChange={e=>setScenario({...scenario,horizon:e.target.valueAsNumber})}/></Field>
+      <form id="comparison-assumptions" aria-labelledby="comparison-assumptions-heading" className="panel space-y-3" onSubmit={apply}>
+        <h2 id="comparison-assumptions-heading">1. Equipment and assumptions</h2>
+        <div className="field-grid grid-cols-2 items-end xl:grid-cols-1">
+          <Field label="Equipment type"><select disabled={action.busy} value={scenario.category} onChange={event=>select(event.target.value as Category)}>{Object.entries(categories).map(([key,name])=><option value={key} key={key}>{name}</option>)}</select></Field>
+          <Field label="Straight-line radius (m)"><input type="number" min={planning.minRadius} max={planning.maxRadius}
+            value={Number.isNaN(scenario.radius)?'':scenario.radius} required onChange={e=>setScenario({...scenario,radius:e.target.valueAsNumber})}/></Field>
+          <Field label="Upfront budget (USD)"><input type="number" step=".01" min="0" max={planning.maxBudget/100}
+            value={Number.isNaN(scenario.budget)?'':scenario.budget/100} required onChange={e=>setScenario({...scenario,budget:Math.round(e.target.valueAsNumber*100)})}/></Field>
+          <Field label="Planning horizon (years)"><input type="number" min="1" max={planning.maxHorizon}
+            value={Number.isNaN(scenario.horizon)?'':scenario.horizon} required onChange={e=>setScenario({...scenario,horizon:e.target.valueAsNumber})}/></Field>
+        </div>
         <button className="button" disabled={action.busy}>Apply assumptions</button><Feedback {...action}/>
       </form>
       <section className="panel space-y-3"><h2>2. Inspect unmet demand</h2>
@@ -132,22 +134,32 @@ function ComparisonPage({testWorkspace}: {testWorkspace:boolean}) {
         <button type="submit" form="comparison-assumptions" className="button primary" disabled={action.busy}>Compare sites</button>
       </section>
     </div>
-    <section className="panel space-y-4">
-      <div className="flex flex-wrap justify-between gap-3"><div><h2>4. Compare investment options</h2>
+    <section className="panel space-y-4" aria-labelledby="comparison-heading">
+      <div className="flex flex-wrap justify-between gap-3"><div><h2 id="comparison-heading">4. Compare investment options</h2>
         {current && <p className="text-sm muted">Revision {current.revision} · {new Date(current.calculatedAt).toLocaleString()}</p>}</div>
-        <div className="flex flex-wrap gap-2">{requestRef && <>{!testWorkspace && <button className="button" disabled={ai.busy||action.busy} onClick={()=>void ai.run(async()=>{
-          const explanation=await api<Explanation>('/staff/explain','POST',requestRef);
-          setResult(value=>value?.calculatedAt===requestRef.calculatedAt?{...value,explanation}:value);
-        })}>{ai.busy?'Preparing explanation…':'Request AI explanation'}</button>}
+        <div className="flex flex-wrap gap-2 md:ml-auto md:justify-end">{requestRef && <>
           <button className="button primary" disabled={report.busy} onClick={()=>void report.run(async()=>{
             const text=await api<string>('/staff/export','POST',requestRef);
             const url=URL.createObjectURL(new Blob([text],{type:'text/markdown'}));
             const anchor=document.createElement('a');anchor.href=url;anchor.download='blockfit-comparison.md';anchor.click();
             setTimeout(()=>URL.revokeObjectURL(url),1000);
-          },'Comparison brief downloaded.')}>Download brief</button></>}</div>
+          },'Comparison brief downloaded.')}>Download brief</button>
+          {!testWorkspace && <button className="button" disabled={ai.busy||action.busy} onClick={()=>void ai.run(async()=>{
+            const explanation=await api<Explanation>('/staff/explain','POST',requestRef);
+            setResult(value=>value?.calculatedAt===requestRef.calculatedAt?{...value,explanation}:value);
+          })}>{ai.busy?'Preparing explanation…':'Request AI explanation'}</button>}
+        </>}<span className="sr-only" role="status">{current && ai.busy?'Preparing explanation…':''}</span></div>
       </div>
-      <p className="text-sm muted"><strong>5. Export for review.</strong> The brief is evidence for a human planning discussion.</p>
-      <Feedback {...report}/><Feedback {...ai}/>
+      {(report.status || report.error || (current && ai.error)) && <div className="md:text-right">
+        <Feedback {...report}/>
+        {current && <Feedback error={ai.error}/>}
+      </div>}
+      {current?.explanation && !action.busy && !ai.busy && <article className="rounded-control bg-canvas p-4 md:max-xl:ml-auto md:max-xl:max-w-2xl" aria-labelledby="explanation-heading">
+        <h3 id="explanation-heading">AI explanation</h3>
+        <p className="mt-2 break-words text-sm">{current.explanation.summary}</p>
+        {current.explanation.tradeoffs && <p className="mt-2 break-words text-sm"><strong>Tradeoffs.</strong> {current.explanation.tradeoffs}</p>}
+        {current.explanation.checks && <p className="mt-2 break-words text-sm"><strong>Checks before proceeding.</strong> {current.explanation.checks}</p>}
+      </article>}
       <p className="text-sm muted">{newlyCovered}</p>
       {current ? <>
         {!current.highlighted.length && <p className="text-sm muted">No option meets all highlighting criteria.</p>}
@@ -180,12 +192,6 @@ function ComparisonPage({testWorkspace}: {testWorkspace:boolean}) {
           <p className="mt-2">{screening} {ranking}</p>
           <p className="mt-2">Upfront budget fit is separate from lifecycle costs. Missing amounts remain unknown. Zero new coverage yields N/A for cost per requester. {interpretation}</p>
         </details>
-        {current.explanation && !action.busy && !ai.busy && <article className="rounded-control bg-canvas p-4" aria-labelledby="explanation-heading">
-          <h3 id="explanation-heading">AI explanation</h3>
-          <p className="mt-2 break-words text-sm">{current.explanation.summary}</p>
-          {current.explanation.tradeoffs && <p className="mt-2 break-words text-sm"><strong>Tradeoffs.</strong> {current.explanation.tradeoffs}</p>}
-          {current.explanation.checks && <p className="mt-2 break-words text-sm"><strong>Checks before proceeding.</strong> {current.explanation.checks}</p>}
-        </article>}
       </>:<p role="status" className="muted">Run the comparison to see results for the current inputs and inventory.</p>}
     </section>
   </main>;

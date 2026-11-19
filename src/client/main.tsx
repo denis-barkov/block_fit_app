@@ -1,4 +1,4 @@
-import { lazy,Suspense,useEffect,useState } from 'react';
+import { lazy,Suspense,useEffect,useRef,useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './styles.css';
@@ -18,7 +18,8 @@ const next=query.get('returnTo');
 function App() {
   const [user,setUser]=useState<User|null|undefined>();
   const [contact,setContact]=useState<string|null>(null);
-  const [password,setPassword]=useState(false);
+  const [accountOpen,setAccountOpen]=useState(false);
+  const accountButton=useRef<HTMLButtonElement>(null);
   const [error,setError]=useState('');
   const [sessionCheck,recheck]=useState(0);
   const action=useAction();
@@ -39,7 +40,7 @@ function App() {
   },[sessionCheck]);
   useEffect(()=>{
     void api<{contact:string|null}>('/config').then(value=>setContact(value.contact)).catch(()=>{});
-    const refresh=()=>{setPassword(false);setUser(undefined);setError('');recheck(n=>n+1);};
+    const refresh=()=>{setAccountOpen(false);setUser(undefined);setError('');recheck(n=>n+1);};
     const restore=(event:PageTransitionEvent)=>{if(event.persisted)refresh();};
     const hide=(event:PageTransitionEvent)=>{
       if(event.persisted && (staffPage || path==='/requests')) document.getElementById('main')?.setAttribute('hidden','');
@@ -61,7 +62,13 @@ function App() {
     setUser(undefined);
     location.replace(staffPage?staffLogin:'/');
   });
-  const logout=<button className="py-2" disabled={action.busy} onClick={signOut}>Sign out</button>;
+  const account = user && <div className="flex items-center gap-2">
+    <button ref={accountButton} type="button" aria-label="Account" aria-haspopup="dialog" onClick={()=>setAccountOpen(true)}
+      className="grid size-11 place-items-center rounded-full border border-mint bg-mint text-sm font-bold text-brand-dark hover:bg-white focus-visible:outline-white">
+      <span aria-hidden="true">{initials(user.name)}</span>
+    </button>
+    <button className="min-h-11 px-1" disabled={action.busy} onClick={signOut}>Sign out</button>
+  </div>;
   const mismatch=staffPage?user?.role==='resident':path==='/requests'&&user?.role==='staff';
   const signIn=(matched:User)=>{
     if(staffPage && matched.role==='resident') {setUser(matched);return;}
@@ -82,19 +89,16 @@ function App() {
             {user?.role==='staff' && <>
               <a className="py-2" href={staffHome} aria-current={path===staffHome?'page':undefined}>Investment comparisons</a>
               {user.purpose!=='automated-test' && <a className="py-2" href={staffInventoryPage} aria-current={path===staffInventoryPage?'page':undefined}>Manage inventory</a>}
-              <span className="max-w-40 break-words">{user.name}</span>
             </>}
             <a className="py-2" href="/">View public site</a>
-            {user && logout}
           </>:<>
             <a href="/" className="py-2" aria-current={path==='/'?'page':undefined}>Explore equipment</a>
             {user===null && <a className="py-2" href={residentLogin}>Sign in / Register</a>}
-            {user?.role==='resident' && <>
-              <a className="py-2" href="/requests" aria-current={path==='/requests'?'page':undefined}>My requests</a>
-              <button className="py-2" onClick={()=>setPassword(true)}>Account</button>{logout}
-            </>}
-            {user?.role==='staff' && <><a className="py-2" href={staffHome}>Return to City workspace</a>{logout}</>}
+            {user?.role==='resident' &&
+              <a className="py-2" href="/requests" aria-current={path==='/requests'?'page':undefined}>My requests</a>}
+            {user?.role==='staff' && <a className="py-2" href={staffHome}>Return to City workspace</a>}
           </>}
+          {account}
         </nav>
       </div>
     </header>
@@ -127,10 +131,27 @@ function App() {
       <p>BlockFit NYC · Outdoor fitness access and investment planning</p>
       {user===null && <a className="font-bold" href={staffLogin}>City staff sign in</a>}
     </div></footer>}
-    {password && user?.role==='resident' && <Modal title="Account and password" onClose={()=>setPassword(false)}>
-      <p className="mb-4 muted">{user.name} · {user.email}</p><PasswordForm/>
+    {accountOpen && user && <Modal title="Account" onClose={()=>{
+      setAccountOpen(false);
+      requestAnimationFrame(()=>accountButton.current?.focus());
+    }}>
+      <div className="mb-4 flex items-start gap-3">
+        <span aria-hidden="true" className="grid size-11 shrink-0 place-items-center rounded-full bg-mint text-sm font-bold text-brand-dark">{initials(user.name)}</span>
+        <div className="min-w-0 break-words">
+          <p className="text-xs font-bold text-brand-dark">{user.role==='staff'?'City staff':'Resident'}</p>
+          <p className="font-bold">{user.name}</p>
+          <p className="text-sm muted">{user.email}</p>
+        </div>
+      </div>
+      {user.role==='resident' && <PasswordForm/>}
     </Modal>}
   </>;
+}
+
+function initials(name: string) {
+  const words = name.trim().split(/\s+/u).filter(Boolean);
+  const parts = words.length > 1 ? [words[0],words.at(-1)!] : words;
+  return parts.map(word=>[...word][0]).join('').toLocaleUpperCase() || '?';
 }
 
 createRoot(document.getElementById('root')!).render(<App/>);

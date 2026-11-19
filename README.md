@@ -2,7 +2,7 @@
 
 BlockFit NYC helps City staff compare outdoor fitness investments using resident requests, existing equipment coverage, and transparent cost assumptions. Residents can find equipment, check what is known about access, and request what is missing near a private location. Staff can maintain the inventory, model candidate sites under a budget, and export a comparison brief.
 
-The 0.0.5 local beta uses a Forest Hills, Queens demonstration dataset with 81 synthetic request origins, 15 illustrative equipment records, and eight candidate sites. Demo verification and cost assumptions are simulated. BlockFit NYC is an NYCEDC project concept. A recorded request can inform planning discussion, and City approval and funding follow existing processes.
+The 0.0.6 local beta uses a Forest Hills, Queens demonstration dataset with 81 synthetic request origins, 15 illustrative equipment records, and eight candidate sites. Demo verification and cost assumptions are simulated. BlockFit NYC is an NYCEDC project concept. A recorded request can inform planning discussion, and City approval and funding follow existing processes.
 
 ## Run locally
 
@@ -15,7 +15,7 @@ make dev ENV=local
 
 Open the loopback URL printed by Wrangler, normally `http://127.0.0.1:8787`. If that port is occupied, choose a free one in `.env.local` by changing `APP_ORIGIN` before restarting. Use the exact configured URL for session cookies and origin checks.
 
-Setup applies the SQL migrations and creates the local dataset and two demonstration accounts. Open **`.blockfit/demo-accounts.json`** in a private local editor to retrieve the generated logins. The file is ignored by Git. Use **Sign in / Register** for the resident login or self-registration, or open **City staff sign in** at `/staff/login` with the staff demo credentials. The dedicated staff shell starts at `/staff`. **View public site** and **Return to City workspace** preserve the staff session. Keep synthetic coordinates in any demonstration. The default local database lives in `.blockfit/local-d1/` and survives restart.
+Setup applies the SQL migrations and creates the local dataset and two demonstration accounts. Open **`.blockfit/demo-accounts.json`** in a private local editor to retrieve the generated logins. The file is ignored by Git. Use **Sign in / Register** for the resident login or self-registration, or open **City staff sign in** at `/staff/login` with the staff demo credentials. The dedicated staff shell starts at `/staff`. **View public site** and **Return to City workspace** preserve the staff session. Select your initials beside **Sign out** to view account details. Residents can also change their password there. Keep synthetic coordinates in any demonstration. The default local database lives in `.blockfit/local-d1/` and survives restart.
 
 | Command | Purpose |
 | --- | --- |
