@@ -172,7 +172,8 @@ export async function production(command,env,args) {
     if(provisions) {
       phase='resource tags';
       await applyTags(tagging,env,'d1_database',record.databaseId,!record.databaseTagged);
-      await applyTags(tagging,env,'pages_project',record.pagesId,!record.pagesTagged);
+      // Cloudflare verifies Pages ownership by ID but its tagging API writes by project name.
+      await applyTags(tagging,env,'pages_project',record.pagesName,!record.pagesTagged);
       record={...record,databaseTagged:true,pagesTagged:true};
       inventory.write(record);
       phase='backup and migrations';
