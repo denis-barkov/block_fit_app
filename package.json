@@ -1,6 +1,6 @@
 {
   "name": "blockfit-nyc",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,6 +10,7 @@
     "test-browser": "node scripts/browser.mjs"
   },
   "dependencies": {
+    "@turf/boolean-point-in-polygon": "7.4.0",
     "@turf/circle": "7.4.0",
     "@turf/distance": "7.4.0",
     "better-auth": "1.7.25",

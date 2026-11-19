@@ -1,5 +1,6 @@
+import { mapArea } from '../../config/map-area';
 import { lazy, Suspense, useEffect, useState, type FormEvent } from 'react';
-import { categories, limits, mapArea, pilot } from '../../config/settings';
+import { categories, limits,  pilot } from '../../config/settings';
 import type { Category, Coordinate, PublicEquipment } from '../contracts';
 import { metres } from '../server/planning';
 import { Categories, Feedback, Field, message } from './common';

@@ -61,10 +61,15 @@ test('map pin and list share selection with an offline vector style',async({page
   await expect(bench).toHaveAttribute('aria-pressed','true');
   await page.getByRole('button',{name:/West court pull-up bars.*Simulated verification/}).click();
   await expect(map.getByRole('button',{name:'West court pull-up bars'})).toHaveAttribute('aria-pressed','true');
-  await map.getByRole('button',{name:'Brooklyn and Queens'}).click();
-  await expect(map.getByRole('button',{name:'Show Forest Hills demo'})).toBeVisible();
-  await map.getByRole('button',{name:'Show Forest Hills demo'}).click();
-  await expect(map.getByRole('button',{name:'Brooklyn and Queens'})).toBeVisible();
+  await expect(map.getByText('Brooklyn and Queens pin area')).toBeVisible();
+  for (const width of [390,1440]) {
+    await page.setViewportSize({width,height:900});
+    await map.getByRole('button',{name:'Show all five boroughs'}).click();
+    await expect(map.getByRole('button',{name:'Zoom out'})).toBeDisabled();
+    await map.screenshot({path:test.info().outputPath(`nyc-extent-${width}.png`)});
+    await map.getByRole('button',{name:'Show Forest Hills demo'}).click();
+    await expect(map.getByRole('button',{name:'Zoom out'})).toBeEnabled();
+  }
 });
 test('mobile registration preserves the selected category and persists the resident lifecycle',async({page})=>{
   await page.setViewportSize({width:390,height:844});
@@ -128,6 +133,11 @@ test('mobile registration preserves the selected category and persists the resid
   await expect(page.getByText('New requests require you to choose a location.')).toBeVisible();
   await page.getByRole('button',{name:'New request'}).click();
   await expect(preference).not.toBeChecked();
+  await dialog.getByLabel('Latitude').fill('40.714');
+  await dialog.getByLabel('Longitude').fill('-74.008');
+  await expect(dialog.getByText('Choose a pin in Brooklyn and Queens.')).toBeVisible();
+  await dialog.getByRole('button',{name:'Move location'}).click();
+  await expect(dialog.getByRole('button',{name:'Confirm move'})).toHaveCount(0);
   await dialog.getByLabel('Latitude').fill('40.5756');
   await dialog.getByLabel('Longitude').fill('-73.9805');
   await dialog.getByLabel('Location label (optional)').fill('Coney Island fixture');

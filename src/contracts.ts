@@ -1,11 +1,12 @@
 import { z } from 'zod';
-import { categories, limits, mapArea, planning } from '../config/settings.ts';
+import { isInServiceArea, pinOutsideServiceArea } from '../config/map-area.ts';
+import { categories, limits, planning } from '../config/settings.ts';
 
 export const category = z.enum(Object.keys(categories) as [keyof typeof categories, ...(keyof typeof categories)[]]);
 export type Category = z.infer<typeof category>;
 export const coordinate = z.object({
-  lat: z.number().finite().min(mapArea.bounds.south).max(mapArea.bounds.north),
-  lng: z.number().finite().min(mapArea.bounds.west).max(mapArea.bounds.east),
+  lat: z.number().finite().min(-90).max(90),
+  lng: z.number().finite().min(-180).max(180),
 });
 export type Coordinate = z.infer<typeof coordinate>;
 export const shortText = z.string().trim().max(limits.shortText);
@@ -13,12 +14,13 @@ const text = z.string().trim().max(limits.text);
 const id = z.string().min(1).max(64);
 const httpUrl = z.url({ protocol: /^https?$/ }).max(limits.text)
   .refine(value => !new URL(value).username && !new URL(value).password);
-export const locationInput = coordinate.extend({ label: shortText, useForRequests: z.boolean().optional(),
+const savedLocationInput = coordinate.extend({ label: shortText, useForRequests: z.boolean().optional(),
   confirmed: z.literal(true).optional() }).strict();
 const activeRequests = z.number().int().min(0).max(Object.keys(categories).length);
-export const moveLocationInput = locationInput.extend({ activeRequests });
+export const locationInput = savedLocationInput.refine(isInServiceArea,pinOutsideServiceArea);
+export const moveLocationInput = savedLocationInput.extend({ activeRequests }).refine(isInServiceArea,pinOutsideServiceArea);
 export const requestInput = z.object({
-  category, note: text, suggestion: text, point: coordinate.nullable(),
+  category, note: text, suggestion: text, point: coordinate.refine(isInServiceArea,pinOutsideServiceArea).nullable(),
 }).strict();
 const namedPoint = coordinate.extend({ name: shortText.min(1) });
 export const parkInput = namedPoint.extend({ externalId: shortText, source: text, hours: shortText, cityMaintained:z.boolean() }).strict();

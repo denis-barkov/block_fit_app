@@ -33,7 +33,7 @@ it('round-trips private data into fresh D1, excludes sessions and freezes AI wit
   const resident=account.user.id;
   await db.batch([
     db.prepare("INSERT INTO locations VALUES(?,40.7192,-73.8461,'Pilot test','2026-11-18',0)").bind(resident),
-    db.prepare("INSERT INTO removed_locations VALUES('removed',?,40.5756,-73.9805,'Old pin','2026-11-18')").bind(resident),
+    db.prepare("INSERT INTO removed_locations VALUES('removed',?,40.710,-74.054,'Old pin','2026-11-18')").bind(resident),
     db.prepare("INSERT INTO demand(id,owner,category,lat,lng,status,created_at,confirmed_at) VALUES('private',?,'pull-up',40.7192,-73.8461,'recorded','2026-11-18','2026-11-18')").bind(resident),
     db.prepare("INSERT INTO session(id,expiresAt,token,createdAt,updatedAt,userId) VALUES('test-session','2099-01-01','synthetic-session-token','2026-11-18','2026-11-18',?)").bind(resident),
     db.prepare('UPDATE ai_total SET spent=75 WHERE id=1'),
@@ -46,12 +46,12 @@ it('round-trips private data into fresh D1, excludes sessions and freezes AI wit
   await fresh.prepare('UPDATE ai_total SET spent=100 WHERE id=1').run();
   await expect(restoreSnapshot(fresh,{...snapshot,migration:'unknown'})).rejects.toThrow('incompatible');
   const before=await getComparison(db,scenario);
-  await restoreSnapshot(fresh,snapshot);
+  await restoreSnapshot(fresh,{...snapshot,version:'0.1.0'});
   await expect(restoreSnapshot(fresh,snapshot)).rejects.toThrow('empty target');
   expect(await inventory(fresh,null,'')).toEqual(await inventory(db,null,''));
   expect(await getComparison(fresh,scenario)).toMatchObject({demandCount:before.demandCount,unmet:before.unmet,options:before.options});
   expect(await fresh.prepare('SELECT use_for_requests FROM locations').first('use_for_requests')).toBe(0);
-  expect(await fresh.prepare('SELECT removed_at FROM removed_locations').first('removed_at')).toBe('2026-11-18');
+  expect(await fresh.prepare('SELECT lat,lng,removed_at FROM removed_locations').first()).toEqual({lat:40.710,lng:-74.054,removed_at:'2026-11-18'});
   expect(await fresh.prepare('SELECT count(*) n FROM session').first('n')).toBe(0);
   expect(await fresh.prepare('SELECT spent FROM ai_total').first('spent')).toBe(100);
   expect(await fresh.prepare('SELECT attempts FROM ai_day').first('attempts')).toBe(7);

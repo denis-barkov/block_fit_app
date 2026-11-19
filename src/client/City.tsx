@@ -1,5 +1,6 @@
+import { mapArea } from '../../config/map-area';
 import { lazy,Suspense,useEffect,useState, type FormEvent } from 'react';
-import { categories,mapArea,planning } from '../../config/settings';
+import { categories,planning } from '../../config/settings';
 import type { Category, Explanation, Scenario } from '../contracts';
 import { feasibilityLabels,interpretation,newlyCovered,ranking,screening,type Comparison } from '../server/planning';
 import { api,Categories,Feedback,Field,message,useAction } from './common';

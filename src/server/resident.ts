@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
-import { locationInput, moveLocationInput, requestInput, type SavedLocation } from '../contracts';
+import { isInServiceArea, pinOutsideServiceArea } from '../../config/map-area';
+import { locationInput, moveLocationInput, requestInput, type Coordinate, type SavedLocation } from '../contracts';
 import { requests, stmt } from './database';
-import { body, changed, type App } from './web';
+import { body, changed, problem, type App } from './web';
 
 export const resident = new Hono<App>();
 resident.get('/', async c => {
@@ -50,15 +51,23 @@ resident.delete('/location', async c => {
   changed(removed,'Withdraw your active requests before removing the saved location.',409);
   return c.json({ok:true});
 });
+async function requestLocation(db: D1Database, owner: string) {
+  const point=await stmt(db,'SELECT lat,lng FROM locations WHERE owner=? AND use_for_requests=1',owner).first<Coordinate>();
+  if (point && !isInServiceArea(point)) problem(409,pinOutsideServiceArea);
+  return point;
+}
+
 resident.post('/requests', async c => {
   const input = await body(c,requestInput);
   const owner = c.get('user').id;
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
+  const point=await requestLocation(c.env.DB,owner);
+  if (!point) problem(409,'Choose a saved location to use for new requests.');
   const result = await stmt(c.env.DB,`INSERT INTO demand
     (id,owner,category,lat,lng,status,note,suggestion,suggested_lat,suggested_lng,created_at,confirmed_at)
-    SELECT ?,owner,?,lat,lng,'recorded',?,?,?,?,?,? FROM locations WHERE owner=? AND use_for_requests=1`,
-    id,input.category,input.note,input.suggestion,input.point?.lat ?? null,input.point?.lng ?? null,now,now,owner).run();
+    SELECT ?,owner,?,lat,lng,'recorded',?,?,?,?,?,? FROM locations WHERE owner=? AND use_for_requests=1 AND lat=? AND lng=?`,
+    id,input.category,input.note,input.suggestion,input.point?.lat ?? null,input.point?.lng ?? null,now,now,owner,point.lat,point.lng).run();
   changed(result,'Choose a saved location to use for new requests.',409);
   return c.json({id},201);
 });
@@ -76,12 +85,17 @@ resident.post('/requests/:id/:action', async c => {
   const now = new Date().toISOString();
   const action = c.req.param('action');
   const db = c.env.DB;
+  if (action==='restore') {
+    const point=await requestLocation(db,owner);
+    if (!point) problem(404,'Save a location before restoring this request.');
+    changed(await stmt(db,`UPDATE demand SET status='recorded',lat=locations.lat,lng=locations.lng,confirmed_at=?
+      FROM locations WHERE demand.id=? AND demand.owner=? AND locations.owner=demand.owner AND locations.use_for_requests=1
+      AND locations.lat=? AND locations.lng=? AND demand.status='withdrawn'`,now,id,owner,point.lat,point.lng).run());
+    return c.json({ok:true});
+  }
   const queries = {
     reconfirm: stmt(db,"UPDATE demand SET confirmed_at=? WHERE id=? AND owner=? AND status='recorded'",now,id,owner),
     withdraw: stmt(db,"UPDATE demand SET status='withdrawn' WHERE id=? AND owner=? AND status='recorded'",id,owner),
-    restore: stmt(db,`UPDATE demand SET status='recorded',lat=locations.lat,lng=locations.lng,confirmed_at=?
-      FROM locations WHERE demand.id=? AND demand.owner=? AND locations.owner=demand.owner AND locations.use_for_requests=1
-      AND demand.status='withdrawn'`,now,id,owner),
   };
   if (!Object.hasOwn(queries,action)) return c.json({error:'Action not found.'},404);
   changed(await queries[action as keyof typeof queries].run());

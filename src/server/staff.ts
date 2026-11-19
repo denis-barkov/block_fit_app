@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
+import { isInServiceArea, pinOutsideServiceArea } from '../../config/map-area';
 import { z } from 'zod';
-import { candidateInput, equipmentInput, parkInput, scenarioInput, type Scenario } from '../contracts';
+import { candidateInput, equipmentInput, parkInput, scenarioInput, type Coordinate, type Scenario } from '../contracts';
 import { cachedExplanation, explain } from './ai';
 import { getComparison, staffInventory, stmt, throttle } from './database';
 import { makeBrief } from './planning';
@@ -14,7 +15,8 @@ staff.use('/inventory/*',async (c,next)=>{
 });
 staff.get('/inventory', async c => c.json(await staffInventory(c.env.DB)));
 const kind = z.enum(['parks','equipment','candidates']);
-async function save(db: D1Database, table: string, id: string|null, data: Record<string,string|number|null>) {
+async function save(db: D1Database, table: string, id: string|null, data: Coordinate & Record<string,string|number|null>) {
+  if (!isInServiceArea(data)) problem(400,pinOutsideServiceArea);
   const columns = Object.keys(data);
   const values = Object.values(data);
   if (id) {

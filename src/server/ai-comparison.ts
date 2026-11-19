@@ -1,4 +1,5 @@
-import { categories, limits, mapArea } from '../../config/settings';
+import { mapArea } from '../../config/map-area';
+import { categories, limits } from '../../config/settings';
 import { scenarioInput, upfrontKeys } from '../contracts';
 import { highlightExclusions, levels, ranking, type Comparison } from './planning';
 

@@ -2,8 +2,9 @@ import { useEffect,useRef,useState } from 'react';
 import type { LngLatBoundsLike, Map as MapInstance, Marker } from 'maplibre-gl';
 import circle from '@turf/circle';
 import mapWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
-import { mapArea, pilot } from '../../config/settings';
-import { coordinate, type Coordinate } from '../contracts';
+import { isInServiceArea, mapArea, pinOutsideServiceArea } from '../../config/map-area';
+import { pilot } from '../../config/settings';
+import type { Coordinate } from '../contracts';
 
 export type Pin = Coordinate & {
   id:string; label:string; kind:'equipment'|'candidate'|'synthetic'|'private'|'reference';
@@ -11,7 +12,7 @@ export type Pin = Coordinate & {
 };
 type Props={pins:Pin[]; overlays?:{point:Coordinate;radius:number}[]; onPick?:(point:Coordinate)=>void; label:string;overview?:boolean;initialCenter?:Coordinate};
 const valid=(point:Coordinate)=>Number.isFinite(point.lat)&&Number.isFinite(point.lng);
-const extent = ({west,south,east,north}: typeof mapArea.bounds): LngLatBoundsLike => [[west,south],[east,north]];
+const extent = ({west,south,east,north}: typeof mapArea.cityOverview): LngLatBoundsLike => [[west,south],[east,north]];
 export default function MapView({pins,overlays=[],onPick,label,overview,initialCenter=pilot.center}: Props) {
   const container=useRef<HTMLDivElement>(null);
   const map=useRef<MapInstance|null>(null);
@@ -23,13 +24,14 @@ export default function MapView({pins,overlays=[],onPick,label,overview,initialC
   const [regional,setRegional]=useState(false);
   const [outside,setOutside]=useState(false);
   function selectPoint(point: Coordinate, select: (value: Coordinate)=>void) {
-    const result=coordinate.safeParse(point);
-    setOutside(!result.success);
-    if(result.success) select(result.data);
-    return result.success;
+    const accepted=isInServiceArea(point);
+    setOutside(!accepted);
+    if(accepted) select({lat:point.lat,lng:point.lng});
+    return accepted;
   }
   function changeExtent() {
-    map.current?.fitBounds(extent(regional?pilot.demoOverview:mapArea.bounds),{padding:28,maxZoom:14.5,duration:0});
+    map.current?.fitBounds(extent(regional?pilot.demoOverview:mapArea.cityOverview),{padding:28,maxZoom:14.5,duration:0});
+    setOutside(false);
     setRegional(!regional);
   }
   useEffect(()=>{
@@ -44,8 +46,14 @@ export default function MapView({pins,overlays=[],onPick,label,overview,initialC
       const view=new lib.Map({
         container:container.current,style:'https://tiles.openfreemap.org/styles/liberty',
         center:[initialCenter.lng,initialCenter.lat],zoom:14,
-        scrollZoom:false,
+        maxBounds:extent(mapArea.panBounds),scrollZoom:false,
       });
+      const limitZoom = () => {
+        const cityCamera=view.cameraForBounds(extent(mapArea.cityOverview),{padding:28});
+        if (cityCamera?.zoom !== undefined) view.setMinZoom(cityCamera.zoom);
+      };
+      limitZoom();
+      view.on('resize',limitZoom);
       if(overview) view.fitBounds(extent(pilot.demoOverview),{padding:28,maxZoom:14.5,duration:0});
       map.current=view;
       view.addControl(new lib.NavigationControl({showCompass:false}),'top-right');
@@ -55,6 +63,9 @@ export default function MapView({pins,overlays=[],onPick,label,overview,initialC
         setUnavailable(false);
         view.addSource('coverage',{type:'geojson',data:{type:'FeatureCollection',features:[]}});
         view.addLayer({id:'coverage',type:'fill',source:'coverage',paint:{'fill-color':coverageColor,'fill-opacity':.19}});
+        view.addSource('service-boundary',{type:'geojson',data:mapArea.serviceBoundary});
+        view.addLayer({id:'service-boundary',type:'line',source:'service-boundary',
+          paint:{'line-color':coverageColor,'line-width':2.5}});
         setReady(true);
       });
       view.on('click',event=>{if (pick.current) selectPoint(event.lngLat,pick.current);});
@@ -94,9 +105,12 @@ export default function MapView({pins,overlays=[],onPick,label,overview,initialC
   return <div className="map-frame" role="region" aria-label={label}>
     <div ref={container} className="absolute inset-0" aria-hidden={unavailable||undefined}/>
     {ready && !unavailable && <button type="button" className="button absolute top-2 left-2 z-10"
-      onClick={changeExtent}>{regional?'Show Forest Hills demo':mapArea.name}</button>}
-    {outside && <p role="status" className="absolute bottom-6 left-2 z-10 rounded-control bg-paper px-2 py-1 text-sm">
-      Choose a pin in the {mapArea.name} map area.
+      onClick={changeExtent}>{regional?'Show Forest Hills demo':'Show all five boroughs'}</button>}
+    {ready && !unavailable && !outside && <p className="pointer-events-none absolute bottom-10 right-2 rounded-control bg-paper px-2 py-1 text-xs">
+      {mapArea.name} pin area
+    </p>}
+    {outside && <p role="status" className="absolute bottom-10 left-2 z-10 rounded-control bg-paper px-2 py-1 text-sm">
+      {pinOutsideServiceArea}
     </p>}
     {!ready && <div className="absolute inset-0 grid place-content-center bg-canvas px-5 text-center muted" role="status">
       {unavailable?'Map unavailable. Use the lists or coordinate fields.':'Loading neighborhood map…'}

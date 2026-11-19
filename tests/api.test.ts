@@ -225,6 +225,37 @@ describe('connected Worker API and D1',()=>{
     expect((await staff.send('/staff/inventory/equipment/'+equipmentId,'DELETE')).ok).toBe(true);
   });
 
+  it('rejects out-of-service pins from clients and preserves existing requests with legacy pins',async()=>{
+    const resident=await register('boroughs@blockfit.example');
+    const manhattan={lat:40.714,lng:-74.008};
+    const jersey={lat:40.710,lng:-74.054};
+    for(const point of [manhattan,jersey,{lat:40.826,lng:-73.924},{lat:40.638,lng:-74.083},{lat:40.7045,lng:-73.992}]) {
+      const pin={...point,label:'Out-of-area fixture',useForRequests:true};
+      const result=await resident.send('/resident/location','PUT',pin);
+      expect(result.status).toBe(400);
+      expect(await result.json()).toMatchObject({error:'Choose a pin in Brooklyn and Queens.'});
+      expect((await staff.send('/staff/inventory/equipment','POST',{...inventory,...point})).status).toBe(400);
+    }
+    expect((await staff.send('/staff/inventory/parks','POST',{...manhattan,name:'Outside',externalId:'',source:'',hours:'',cityMaintained:false})).status).toBe(400);
+    expect((await staff.send('/staff/inventory/candidates','POST',{...candidate,...jersey})).status).toBe(400);
+    await location(resident,{lat:40.5862,lng:-73.811});
+    expect((await resident.send('/resident/requests','POST',{...request,point:manhattan})).status).toBe(400);
+    const created=await resident.send('/resident/requests','POST',request);
+    expect(created.status).toBe(201);
+    const {id}=await json<{id:string}>(created);
+    // Reproduce a saved pin accepted by 0.1.0. Its location trigger moves the stored request as before.
+    await env.DB.prepare("UPDATE locations SET lat=?,lng=? WHERE owner=(SELECT id FROM user WHERE email='boroughs@blockfit.example')")
+      .bind(jersey.lat,jersey.lng).run();
+    expect((await resident.send('/resident/requests','POST',{...request,category:'parallel'})).status).toBe(409);
+    expect((await move(resident,manhattan,1)).status).toBe(400);
+    const state=await json<ResidentState>(await resident.send('/resident'));
+    expect(state.requests).toMatchObject([{id,status:'recorded',...jersey}]);
+    expect((await resident.send('/resident/requests/'+id+'/withdraw','POST',{})).ok).toBe(true);
+    expect((await resident.send('/resident/requests/'+id+'/restore','POST',{})).status).toBe(409);
+    expect((await move(resident,{lat:40.7528,lng:-73.7449},0)).ok).toBe(true);
+    expect((await resident.send('/resident/requests/'+id+'/restore','POST',{})).ok).toBe(true);
+  });
+
   it('rejects duplicates, changes passwords securely and persists throttling',async()=>{
     const duplicate=await client().send('/auth/sign-up/email','POST',{email:'a@blockfit.example',name:'Duplicate',password,confirmation:password});
     expect([400,409,422]).toContain(duplicate.status);

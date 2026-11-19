@@ -1,5 +1,6 @@
+import { mapArea, isInServiceArea, pinOutsideServiceArea } from '../../config/map-area';
 import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
-import { categories,limits,mapArea,pilot,planning } from '../../config/settings';
+import { categories,limits,pilot,planning } from '../../config/settings';
 import type { Category, Coordinate, Demand, SavedLocation } from '../contracts';
 import { api,Categories,Coordinates,Feedback,Field,message,Modal,useAction } from './common';
 
@@ -13,6 +14,8 @@ export default function Resident({initialCategory}: {initialCategory:Category}) 
   const [locating,setLocating]=useState<'location'|'request'|null>(null);
   const [removing,setRemoving]=useState(false);
   const activeRequests=data?.requests.filter(request=>request.status==='recorded').length ?? 0;
+  const outside=!!data?.location && !isInServiceArea(data.location);
+  const canUseLocation=!!data?.location?.useForRequests && !outside;
   const action=useAction();
   async function load() {setData(await api<Data>('/resident'));setLoadError('');}
   useEffect(()=>{void load().catch(error=>setLoadError(message(error)));},[]);
@@ -21,9 +24,9 @@ export default function Resident({initialCategory}: {initialCategory:Category}) 
     if (!data || openedHandoff.current || !new URLSearchParams(location.search).has('category')) return;
     openedHandoff.current=true;
     history.replaceState(null,'','/requests');
-    if (data.location?.useForRequests) setDraft(true);
+    if (canUseLocation) setDraft(true);
     else setLocating('request');
-  },[data]);
+  },[data,canUseLocation]);
   function update(id:string,command:string) {
     void action.run(async()=>{await api(`/resident/requests/${id}/${command}`,'POST',{});await load();},
       command==='withdraw'?'Request withdrawn.':command==='restore'?'Request restored.':'Request reconfirmed.');
@@ -37,7 +40,8 @@ export default function Resident({initialCategory}: {initialCategory:Category}) 
       <section className="panel space-y-3"><h2>Saved location</h2>
         {data.location ? <>
           <p>{data.location.label||'Private saved location'}</p>
-          <p className="text-sm muted">{data.location.useForRequests?'Used for new requests.':'New requests require you to choose a location.'}</p>
+          <p className="text-sm muted">{outside?`Your saved pin is outside ${mapArea.name}. Move it before starting a new request.`
+            : canUseLocation?'Used for new requests.':'New requests require you to choose a location.'}</p>
         </> : <p>No location saved yet.</p>}
         <p className="text-sm muted">You can use a nearby landmark or intersection.</p>
         <div className="flex flex-wrap gap-2">
@@ -50,7 +54,7 @@ export default function Resident({initialCategory}: {initialCategory:Category}) 
       <section className="panel space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2>Request history</h2>
-          <button className="button primary" disabled={action.busy} onClick={()=>data.location?.useForRequests?setDraft(true):setLocating('request')}>New request</button>
+          <button className="button primary" disabled={action.busy} onClick={()=>canUseLocation?setDraft(true):setLocating('request')}>New request</button>
         </div>
         <p className="text-sm muted">“Recorded” means your request is saved. Funding and installation require separate City review.</p>
         <Feedback {...action}/>
@@ -64,9 +68,9 @@ export default function Resident({initialCategory}: {initialCategory:Category}) 
             <button className="button" onClick={()=>setDraft(item)}>Edit request</button>
             <button className="button" disabled={action.busy} onClick={()=>update(item.id,'reconfirm')}>Still needed</button>
             <button className="button" disabled={action.busy} onClick={()=>update(item.id,'withdraw')}>Withdraw</button>
-          </>:data.location?.useForRequests
+          </>:canUseLocation
             ? <button className="button" disabled={action.busy} onClick={()=>update(item.id,'restore')}>Restore request</button>
-            : <p className="text-sm muted">Enable a saved location to restore this request.</p>}</div>
+            : <p className="text-sm muted">Choose a saved location in {mapArea.name} to restore this request.</p>}</div>
         </article>)}
       </section>
     </div>}
@@ -120,6 +124,7 @@ function LocationDialog({saved,activeRequests,forRequest,close,save}: {
       <Feedback error={action.error}/>
     </div> : <form className="space-y-3" onSubmit={event=>{
       event.preventDefault();
+      if(!isInServiceArea(point)) return;
       if(moved) setConfirmMove(true);
       else submit();
     }}>
@@ -128,6 +133,7 @@ function LocationDialog({saved,activeRequests,forRequest,close,save}: {
         ...point,id:'private-origin',label:'Private location pin',kind:'reference',short:'•',onMove:setPoint,
       }]}/></Suspense>
       <Coordinates value={point} onChange={setPoint}/>
+      {!isInServiceArea(point) && <p className="text-sm muted">{pinOutsideServiceArea}</p>}
       <Field label="Location label (optional)"><input maxLength={limits.shortText} value={label} onChange={e=>setLabel(e.target.value)}/></Field>
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={useForRequests}
         onChange={event=>setUseForRequests(event.target.checked)}/> Use this saved location for new requests</label>
