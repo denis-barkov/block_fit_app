@@ -2,7 +2,8 @@ import {afterEach,expect,it,vi} from 'vitest';
 import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
 import {readFileSync,mkdtempSync,readdirSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
-import {appTitleHTML} from '../src/html.ts';
+import {appTitleHTML,designColor} from '../src/html.ts';
+import {appIdentity,brandAssets} from '../config/app.ts';
 import edge from '../src/pages/_worker.js';
 import {createAuth} from '../src/server/auth';
 import app from '../src/server/index';
@@ -25,10 +26,12 @@ afterEach(async()=>{
 it('uses a real Workerd HTTP service binding and sends only canonical public headers',async()=>{
   runtime=new Miniflare(convertV4MiniflareOptions({workers:[
     {name:'edge',compatibilityDate:'2026-11-18',modules:true,script:readFileSync('src/pages/_worker.js','utf8'),
-      bindings:{APP_ORIGIN:origin},serviceBindings:{BACKEND:'backend'}},
+      bindings:{APP_ORIGIN:origin},serviceBindings:{BACKEND:'backend',ASSETS:'pages-assets'}},
     {name:'backend',compatibilityDate:'2026-11-18',modules:true,script:`
       export default {fetch(request) {
         const url=new URL(request.url);
+        if(url.pathname.endsWith('/offline')) return new Response('private upstream error',{status:503});
+        if(url.pathname==='/binding-error') throw new Error('upstream unavailable');
         if(url.pathname==='/unsafe') return new Response('internal response',{status:302,headers:{Location:${JSON.stringify(untrusted)}}});
         return new Response(JSON.stringify({url:request.url, forwarded:request.headers.get('Forwarded'),
           original:request.headers.get('X-Original-Url'), redirect:request.redirect}),{
@@ -36,6 +39,11 @@ it('uses a real Workerd HTTP service binding and sends only canonical public hea
             ['Set-Cookie','one=sample; Secure; HttpOnly; Domain=private-worker.person-name.workers.dev; Path=/'],
             ['Set-Cookie','two=sample; Secure; Path=/']],
         });
+      }}`},
+    {name:'pages-assets',compatibilityDate:'2026-11-18',modules:true,script:`
+      export default {fetch(request) {
+        if(new URL(request.url).pathname==='/')return new Response('<title>BlockFit NYC</title>');
+        return new Response('<svg xmlns="http://www.w3.org/2000/svg"/>',{headers:{'Content-Type':'image/svg+xml'}});
       }}`},
   ]}));
   const response=await runtime.dispatchFetch(origin+'/paths?sample=1',{headers:{
@@ -49,7 +57,22 @@ it('uses a real Workerd HTTP service binding and sends only canonical public hea
   expect(rejected.status).toBe(502);
   expect(rejected.headers.get('Location')).toBeNull();
   expect(await rejected.text()).not.toContain(untrusted);
+  const navigation={headers:{Accept:'text/html'}};
+  for(const [path,status] of [['/offline',503],['/binding-error',502]]) {
+    const fallback=await runtime.dispatchFetch(origin+path,navigation);
+    expect(fallback.status).toBe(status);
+    expect(fallback.headers.get('Content-Type')).toMatch(/^text\/html/);
+    expect(fallback.headers.get('Cache-Control')).toBe('no-store');
+    expect(await fallback.text()).toContain('<title>BlockFit NYC</title>');
+  }
+  const api=await runtime.dispatchFetch(origin+'/api/offline',navigation);
+  expect(api.status).toBe(503);
+  expect(api.headers.get('Content-Type')).toMatch(/^text\/plain/);
+  const icon=await runtime.dispatchFetch(origin+brandAssets.mark);
+  expect(icon.headers.get('Content-Type')).toBe('image/svg+xml');
+  expect(await icon.text()).toContain('<svg');
   expect((await runtime.dispatchFetch('https://preview.blockfit-demo.pages.dev/')).status).toBe(404);
+  expect((await runtime.dispatchFetch('https://preview.blockfit-demo.pages.dev'+brandAssets.mark)).status).toBe(404);
 });
 
 it('keeps real Better Auth cookies host-only, forwards session cookies, and rejects the backend hostname',async()=>{
@@ -99,7 +122,33 @@ it('derives the canonical URL from the owned Pages project and packages a privat
     try {packageWorker(target,worker,workerOutput);}
     finally {vi.unstubAllEnvs();}
     for(const file of ['dist/index.html',join(pages.output,'index.html')]) {
-      expect(readFileSync(file,'utf8')).toContain(`<title>${appTitleHTML}</title>`);
+      const html=readFileSync(file,'utf8');
+      expect(html).toContain(`<title>${appTitleHTML}</title>`);
+      expect(html).toContain(`name="theme-color" content="${designColor('brand')}"`);
+      expect(html).toContain(`href="${brandAssets.favicon}" sizes="16x16 32x32"`);
+      expect(html).toContain(`href="${brandAssets.mark}" type="image/svg+xml"`);
+      expect(html).toContain(`rel="apple-touch-icon" href="${brandAssets.apple.src}"`);
+      expect(html).toContain(`rel="manifest" href="${brandAssets.manifest}"`);
+    }
+    const html=readFileSync('dist/index.html','utf8');
+    expect(html).toContain(`name="description" content="${appIdentity.description}"`);
+    expect(html).toContain(`property="og:image" content="${target.APP_ORIGIN}${brandAssets.preview.src}"`);
+    expect(html).toContain('name="twitter:card" content="summary_large_image"');
+    expect(readFileSync(join(pages.output,'index.html'),'utf8')).toContain('name="robots" content="noindex"');
+    for(const output of ['dist',pages.output]) {
+      const manifest=JSON.parse(readFileSync(join(output,brandAssets.manifest),'utf8'));
+      expect(manifest).toMatchObject({name:appIdentity.name,start_url:'/',theme_color:designColor('brand'),
+        icons:brandAssets.android.map(({src,size,purpose})=>({src,sizes:`${size}x${size}`,purpose,type:'image/png'}))});
+      expect(readFileSync(join(output,brandAssets.mark),'utf8')).toContain('<svg');
+      const ico=readFileSync(join(output,brandAssets.favicon));
+      expect([ico.readUInt16LE(4),ico[6],ico[22]]).toEqual([2,16,32]);
+      for(const {src,width,height} of [
+        ...[brandAssets.apple,...brandAssets.android].map(asset=>({...asset,width:asset.size,height:asset.size})),
+        brandAssets.preview,
+      ]) {
+        const png=readFileSync(join(output,src));
+        expect([png.readUInt32BE(16),png.readUInt32BE(20)]).toEqual([width,height]);
+      }
     }
     for(const filename of [
       'investment-comparison/explain-investment-options.txt',

@@ -2,7 +2,7 @@ import { lazy,Suspense,useEffect,useRef,useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './styles.css';
-import { appIdentity } from '../../config/app';
+import { appIdentity, brandAssets } from '../../config/app';
 import { category,type Category,type EquipmentType } from '../contracts';
 import { loginLink,residentLogin,returnPath,staffCatalogPage,staffHome,staffInventoryPage,staffLogin } from '../routes';
 import { api,AuthForm,Feedback,message,Modal,PasswordForm,sessionExpiredEvent,useAction,type User } from './common';
@@ -107,7 +107,7 @@ function App() {
     <header className={`border-b border-line text-white ${staffPage?'bg-workspace':'bg-ink'}`}>
       <div className="shell flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-4">
         <a href={staffPage?staffHome:'/'} className="flex items-center gap-2 text-xl font-bold">
-          <span className="grid size-9 place-items-center rounded-control bg-brand text-sm" aria-hidden="true">{appIdentity.monogram}</span>
+          <img src={brandAssets.mark} alt="" width="36" height="36" className="size-9"/>
           {staffPage?'City workspace':appIdentity.name}
         </a>
         <nav aria-label={staffPage?'Staff navigation':'Public navigation'} className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm font-semibold">

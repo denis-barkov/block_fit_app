@@ -1,8 +1,9 @@
-import {copyFileSync,mkdirSync,readFileSync,writeFileSync} from 'node:fs';
+import {copyFileSync,cpSync,mkdirSync,readFileSync,writeFileSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {bin,run} from './environment.mjs';
 import {CloudflareError} from './cloudflare.mjs';
-import {appTitleHTML} from '../src/html.ts';
+import {appTitleHTML,brandHead,brandManifest} from '../src/html.ts';
+import {brandAssets} from '../config/app.ts';
 
 export const pagesBranch='main';
 export const pagesProjectPath=env=>'/pages/projects/'+env.PAGES_PROJECT_NAME;
@@ -41,8 +42,26 @@ export function packagePages(env,directory) {
   };
   copyFileSync(resolve('src/pages/_worker.js'),join(output,'_worker.js'));
   writeFileSync(join(output,'_routes.json'),JSON.stringify({version:1,include:['/*'],exclude:[]})+'\n');
-  // A generic static fallback keeps the upload nonempty and contains no app assets or backend information.
-  writeFileSync(join(output,'index.html'),`<!doctype html><html lang="en"><meta charset="utf-8"><title>${appTitleHTML}</title><p>The application is temporarily unavailable.</p></html>\n`);
+  cpSync(resolve('public/brand'),join(output,'brand'),{recursive:true});
+  writeFileSync(join(output,brandAssets.manifest),brandManifest());
+  writeFileSync(join(output,'index.html'),`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>${appTitleHTML}</title>
+  ${brandHead()}
+</head>
+<body>
+  <main>
+    <img src="${brandAssets.mark}" width="64" height="64" alt="">
+    <h1>${appTitleHTML}</h1>
+    <p>The application is temporarily unavailable.</p>
+  </main>
+</body>
+</html>
+`);
   writeFileSync(path,JSON.stringify(config,null,2)+'\n',{mode:0o600});
   console.log(`Packaged Pages ingress for ${env.APP_ORIGIN}.`);
   return {path,output};

@@ -18,6 +18,8 @@ Pages accepts the canonical project hostname and forwards every application path
 
 The backend config disables the `workers.dev` route and Worker version preview URLs. The Pages ingress rejects Pages preview and deployment aliases; the canonical `pages.dev` hostname is the supported public endpoint. Both the public interface and the staff interface use this origin. Cloudflare Pages binds the Worker by its service name internally.
 
+The canonical Pages origin serves the brand assets directly, including the home-screen manifest and link preview. If the private Worker is unavailable, browser navigations can render the branded Pages fallback with an error status. The production build uses the verified Pages origin for the share image URL. [Pages advanced mode](https://developers.cloudflare.com/pages/functions/advanced-mode/)
+
 The Make workflow manages one Pages project, Worker and D1 database in the selected Cloudflare account. The protected manifest links their identities. Deploying updates the private Worker first, verifies its public routes are off, then publishes the Pages ingress. The D1 suspension switch blocks service via Pages while retaining data. Destruction removes Pages first and offers a separate D1 retention choice. [Pages service bindings](https://developers.cloudflare.com/pages/functions/bindings/#service-bindings) · [Workers routing](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/)
 
 ## Equipment catalog and proposal review

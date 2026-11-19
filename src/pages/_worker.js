@@ -8,18 +8,38 @@ const publicHeaders = [
   'referrer-policy', 'vary', 'x-content-type-options',
 ];
 
-function unavailable() {
-  return new Response('The application is temporarily unavailable.', {
-    status: 502, headers: { 'Cache-Control': 'no-store' },
+function wantsPage(request,url) {
+  return (request.method==='GET'||request.method==='HEAD')&&url.pathname!=='/api'&&!url.pathname.startsWith('/api/')&&
+    request.headers.get('Accept')?.includes('text/html');
+}
+
+async function unavailable(request,env,url,status=502) {
+  const headers={'Cache-Control':'no-store'};
+  if(wantsPage(request,url)&&env.ASSETS) {
+    try {
+      const fallback=await env.ASSETS.fetch(new Request(new URL('/',url),{method:request.method}));
+      if(fallback.ok)return new Response(request.method==='HEAD'?null:fallback.body,{
+        status,headers:{...headers,'Content-Type':'text/html; charset=utf-8','X-Content-Type-Options':'nosniff'},
+      });
+    } catch {
+      // The plain response is still available if the Pages assets binding fails.
+    }
+  }
+  return new Response(request.method==='HEAD'?null:'The application is temporarily unavailable.', {
+    status, headers,
   });
 }
 
 export default {
-  /** @param {Request} request @param {{ APP_ORIGIN: string, BACKEND: Fetcher }} env */
+  /** @param {Request} request @param {{ APP_ORIGIN: string, BACKEND: Fetcher, ASSETS: Fetcher }} env */
   async fetch(request, env) {
     // Pages deployment URLs and preview aliases are deliberately outside the canonical origin.
-    if (new URL(request.url).origin !== env.APP_ORIGIN) {
+    const url=new URL(request.url);
+    if (url.origin !== env.APP_ORIGIN) {
       return new Response('Not found.', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+    }
+    if((request.method==='GET'||request.method==='HEAD')&&url.pathname.startsWith('/brand/')) {
+      return env.ASSETS.fetch(request);
     }
 
     const requestHeaders = new Headers(request.headers);
@@ -28,7 +48,10 @@ export default {
     try {
       upstream = await env.BACKEND.fetch(new Request(request, { headers: requestHeaders, redirect: 'manual' }));
     } catch {
-      return unavailable();
+      return unavailable(request,env,url);
+    }
+    if([502,503,504].includes(upstream.status)&&wantsPage(request,url)) {
+      return unavailable(request,env,url,upstream.status);
     }
 
     const headers = new Headers();
@@ -39,8 +62,8 @@ export default {
     const location = upstream.headers.get('Location');
     if (location) {
       let target;
-      try { target = new URL(location, request.url); } catch { return unavailable(); }
-      if (target.origin !== env.APP_ORIGIN || target.username || target.password) return unavailable();
+      try { target = new URL(location, request.url); } catch { return unavailable(request,env,url); }
+      if (target.origin !== env.APP_ORIGIN || target.username || target.password) return unavailable(request,env,url);
       headers.set('Location', target.href);
     }
     for (const cookie of upstream.headers.getSetCookie()) {

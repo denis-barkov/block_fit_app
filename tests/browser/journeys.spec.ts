@@ -1,7 +1,7 @@
 import { expect,test,type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { appIdentity,comparisonBriefFilename } from '../../config/app';
+import { appIdentity,brandAssets,comparisonBriefFilename } from '../../config/app';
 import { mapArea } from '../../config/map-area';
 import { feedback, pilot } from '../../config/settings';
 
@@ -23,7 +23,11 @@ test('public discovery keeps the map ahead of listings on smaller screens and su
   await allowFallback(page);
   await page.goto('/');
   await expect(page).toHaveTitle(appIdentity.name);
-  await expect(page.getByRole('banner').getByRole('link',{name:appIdentity.name})).toBeVisible();
+  const appLink=page.getByRole('banner').getByRole('link',{name:appIdentity.name});
+  await expect(appLink).toBeVisible();
+  const mark=appLink.locator(`img[src="${brandAssets.mark}"]`);
+  await expect(mark).toBeVisible();
+  await expect.poll(()=>mark.evaluate((image:HTMLImageElement)=>image.naturalWidth)).toBeGreaterThan(0);
   await expect(page.getByRole('contentinfo')).toContainText(appIdentity.name);
   await expect(page.getByRole('heading',{name:'Find outdoor fitness equipment.'})).toBeVisible();
   await expect(page.getByText('Map unavailable.',{exact:false})).toBeVisible();

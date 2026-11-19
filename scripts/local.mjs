@@ -9,7 +9,10 @@ export function migrate(env,path,persist=persistPath()) {
   run(bin('wrangler'),['d1','migrations','apply','DB','--config',path,local?'--local':'--remote',
     ...(local?['--persist-to',persist]:[])],env);
 }
-export function build(env) {run(bin('vite'),['build'],env);}
+export function build(env) {
+  const publicOrigin=env.DEPLOYMENT==='prod'?env.APP_ORIGIN:'';
+  run(bin('vite'),['build'],env,{env:{...runtimeEnv(env),BLOCKFIT_PUBLIC_ORIGIN:publicOrigin??''}});
+}
 export async function localDev(env,path,persist=persistPath()) {
   const port=createServer();
   try {

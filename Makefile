@@ -1,4 +1,4 @@
-.PHONY: seed-goals seed-proposals seed-update accounts-provision help setup dev build check test test-browser package db-migrate seed staff-create password-reset session-revoke provision deploy snapshot restore suspend resume destroy smoke-prod reset-local benchmark-auth
+.PHONY: seed-goals seed-proposals seed-update accounts-provision help setup dev build brand-assets check test test-browser package db-migrate seed staff-create password-reset session-revoke provision deploy snapshot restore suspend resume destroy smoke-prod reset-local benchmark-auth
 ENV ?=
 NODE = node --disable-warning=ExperimentalWarning
 TASK = $(NODE) scripts/run.mjs
@@ -8,6 +8,7 @@ help:
 	  'make setup                      Install dependencies, migrate and seed local D1' \
 	  'make dev ENV=local              Build and serve the local app' \
 	  'make build ENV=local            Build frontend assets' \
+	  'make brand-assets               Regenerate icons and the link preview with librsvg' \
 	  'make package ENV=local          Dry-run the Worker build and package the Pages ingress' \
 	  'make check / test / test-browser Verify types, domain/API and browser behavior' \
 	  'make db-migrate / seed ENV=...   Apply migrations or initialize demo data' \
@@ -27,6 +28,9 @@ help:
 setup:
 	npm ci --no-audit --no-fund
 	$(TASK) setup local
+
+brand-assets:
+	$(NODE) scripts/brand-assets.mjs
 
 dev build package db-migrate seed seed-goals seed-proposals staff-create password-reset session-revoke suspend resume destroy smoke-prod:
 	$(TASK) $@ "$(ENV)"
