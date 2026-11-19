@@ -2,7 +2,7 @@
 
 ## Back up and restore
 
-A portable JSON snapshot carries application and migration versions. A private snapshot includes business records, account password hashes, and compact AI spending totals. It omits sessions, provider credentials, and cached AI responses. Treat the file as private data. Store it under the ignored `.blockfit/` directory or outside the checkout and use encrypted storage for retention or transfer.
+A portable JSON snapshot carries application and migration versions. A private snapshot includes business records, account password hashes, and compact AI spending totals. It omits sessions, provider credentials, and cached AI responses. Version 0.1.0 adds the saved-location preference and a timestamped removal history. Private snapshots include the history. Earlier supported snapshots restore saved locations with the preference enabled. Treat the file as private data. Store it under the ignored `.blockfit/` directory or outside the checkout and use encrypted storage for retention or transfer.
 
 1. Stop or suspend user traffic and wait for in-flight writes before a private export. Locally, use `make suspend ENV=local`. Export with `make snapshot ENV=local SNAPSHOT=.blockfit/pilot-private.json`. Run `make resume ENV=local` if you want to reopen that source.
 2. To share a clean demonstration dataset, run `make snapshot ENV=local MODE=demo SNAPSHOT=.blockfit/pilot-demo.json`. This builds the stock synthetic dataset in a temporary local database. It contains no accounts, sessions, private requests, or credentials carried over from the source.

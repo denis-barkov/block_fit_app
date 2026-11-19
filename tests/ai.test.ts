@@ -50,7 +50,7 @@ function provider({tokens=500,response=success,hold,failure=false}:{tokens?:numb
     const {input}=JSON.parse(body);
     expect(input[0]).toMatchObject({role:'developer',content:expect.stringContaining(`${ai.outputWords} words`)});
     expect(input[1]).toMatchObject({role:'user'});
-    expect(JSON.parse(input[1].content)).toMatchObject({scenario:{area:'Forest Hills, Queens',distance:'straight-line approximation',horizonYears:10},
+    expect(JSON.parse(input[1].content)).toMatchObject({scenario:{area:'Brooklyn and Queens',distance:'straight-line approximation',horizonYears:10},
       demand:{eligibleUniqueActiveRequesters:1,alreadyServed:0,baselineUnmet:1},costs:{currency:'USD',internalUnit:'cents'}});
     if(String(url).endsWith('/input_tokens')) {
       calls.push('count');

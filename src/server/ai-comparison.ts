@@ -1,4 +1,4 @@
-import { categories, limits, pilot } from '../../config/settings';
+import { categories, limits, mapArea } from '../../config/settings';
 import { scenarioInput, upfrontKeys } from '../contracts';
 import { highlightExclusions, levels, ranking, type Comparison } from './planning';
 
@@ -52,7 +52,7 @@ export function comparisonSnapshot(result: Comparison) {
 
   return {
     scenario:{
-      category:categories[scenario.category], area:pilot.name, radiusMetres:scenario.radius,
+      category:categories[scenario.category], area:mapArea.name, radiusMetres:scenario.radius,
       distance:'straight-line approximation', horizonYears:scenario.horizon,
       upfrontBudgetMinorUnits:scenario.budget, upfrontBudget:money(scenario.budget),
       demandData:dataKind(result.origins.filter(origin => origin.synthetic).length,result.origins.length),

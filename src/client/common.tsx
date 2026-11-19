@@ -1,5 +1,5 @@
 import { useEffect,useRef,useState, type FormEvent, type ReactNode } from 'react';
-import { categories, limits, pilot } from '../../config/settings';
+import { categories, limits, mapArea } from '../../config/settings';
 import type { Category, Coordinate } from '../contracts';
 
 export interface User { id:string; name:string; email:string; role:'staff'|'resident'; purpose?:string|null }
@@ -44,9 +44,9 @@ export function Categories({value,onChange,all=false}: {value:string;onChange:(v
 }
 export function Coordinates({value,onChange}: {value:Coordinate;onChange:(value:Coordinate)=>void}) {
   return <div className="field-grid">
-    <Field label="Latitude"><input type="number" step="any" min={pilot.bounds.south} max={pilot.bounds.north}
+    <Field label="Latitude"><input type="number" step="any" min={mapArea.bounds.south} max={mapArea.bounds.north}
       required value={Number.isNaN(value.lat)?'':value.lat} onChange={e=>onChange({...value,lat:e.target.valueAsNumber})}/></Field>
-    <Field label="Longitude"><input type="number" step="any" min={pilot.bounds.west} max={pilot.bounds.east}
+    <Field label="Longitude"><input type="number" step="any" min={mapArea.bounds.west} max={mapArea.bounds.east}
       required value={Number.isNaN(value.lng)?'':value.lng} onChange={e=>onChange({...value,lng:e.target.valueAsNumber})}/></Field>
   </div>;
 }

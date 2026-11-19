@@ -50,7 +50,8 @@ export async function smoke(env,db,{transport=fetch,readCredentials=smokeCredent
       category=Object.keys(categories).find(key=>!active.has(key));
       if(!category)throw new Error('No free equipment category on the dedicated smoke resident account.');
       owner=user.id;
-      if(!location && !(await http('/resident/location','PUT',{...pilot.center,label:marker,confirmed:true})).ok) {
+      if(location?.useForRequests===false) throw new Error('The dedicated smoke resident has disabled its saved location.');
+      if(!location && !(await http('/resident/location','PUT',{...pilot.center,label:marker,useForRequests:true})).ok) {
         throw new Error('Could not save the smoke location.');
       }
       if(!(await http('/resident/requests','POST',{category,note:marker,suggestion:'',point:null})).ok) {

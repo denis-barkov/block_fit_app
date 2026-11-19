@@ -1,17 +1,18 @@
 import { useEffect,useRef,useState } from 'react';
-import type { Map as MapInstance, Marker } from 'maplibre-gl';
+import type { LngLatBoundsLike, Map as MapInstance, Marker } from 'maplibre-gl';
 import circle from '@turf/circle';
 import mapWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
-import { pilot } from '../../config/settings';
-import type { Coordinate } from '../contracts';
+import { mapArea, pilot } from '../../config/settings';
+import { coordinate, type Coordinate } from '../contracts';
 
 export type Pin = Coordinate & {
   id:string; label:string; kind:'equipment'|'candidate'|'synthetic'|'private'|'reference';
   covered?:boolean; short?:string; onSelect?:()=>void; onMove?:(point:Coordinate)=>void; selected?:boolean;
 };
-type Props={pins:Pin[]; overlays?:{point:Coordinate;radius:number}[]; onPick?:(point:Coordinate)=>void; label:string;overview?:boolean};
+type Props={pins:Pin[]; overlays?:{point:Coordinate;radius:number}[]; onPick?:(point:Coordinate)=>void; label:string;overview?:boolean;initialCenter?:Coordinate};
 const valid=(point:Coordinate)=>Number.isFinite(point.lat)&&Number.isFinite(point.lng);
-export default function MapView({pins,overlays=[],onPick,label,overview}: Props) {
+const extent = ({west,south,east,north}: typeof mapArea.bounds): LngLatBoundsLike => [[west,south],[east,north]];
+export default function MapView({pins,overlays=[],onPick,label,overview,initialCenter=pilot.center}: Props) {
   const container=useRef<HTMLDivElement>(null);
   const map=useRef<MapInstance|null>(null);
   const module=useRef<typeof import('maplibre-gl')|null>(null);
@@ -19,6 +20,18 @@ export default function MapView({pins,overlays=[],onPick,label,overview}: Props)
   pick.current=onPick;
   const [ready,setReady]=useState(false);
   const [unavailable,setUnavailable]=useState(false);
+  const [regional,setRegional]=useState(false);
+  const [outside,setOutside]=useState(false);
+  function selectPoint(point: Coordinate, select: (value: Coordinate)=>void) {
+    const result=coordinate.safeParse(point);
+    setOutside(!result.success);
+    if(result.success) select(result.data);
+    return result.success;
+  }
+  function changeExtent() {
+    map.current?.fitBounds(extent(regional?pilot.demoOverview:mapArea.bounds),{padding:28,maxZoom:14.5,duration:0});
+    setRegional(!regional);
+  }
   useEffect(()=>{
     let mounted=true;
     let timer:ReturnType<typeof setTimeout>;
@@ -30,14 +43,10 @@ export default function MapView({pins,overlays=[],onPick,label,overview}: Props)
       lib.setWorkerUrl(new URL(mapWorkerUrl,window.location.href).href);
       const view=new lib.Map({
         container:container.current,style:'https://tiles.openfreemap.org/styles/liberty',
-        center:[pilot.center.lng,pilot.center.lat],zoom:14,
-        maxBounds:[[pilot.bounds.west-.01,pilot.bounds.south-.01],[pilot.bounds.east+.01,pilot.bounds.north+.01]],
+        center:[initialCenter.lng,initialCenter.lat],zoom:14,
         scrollZoom:false,
       });
-      if(overview) {
-        const {west,south,east,north}=pilot.demoOverview;
-        view.fitBounds([[west,south],[east,north]],{padding:28,maxZoom:14.5,duration:0});
-      }
+      if(overview) view.fitBounds(extent(pilot.demoOverview),{padding:28,maxZoom:14.5,duration:0});
       map.current=view;
       view.addControl(new lib.NavigationControl({showCompass:false}),'top-right');
       view.on('load',()=>{
@@ -48,7 +57,7 @@ export default function MapView({pins,overlays=[],onPick,label,overview}: Props)
         view.addLayer({id:'coverage',type:'fill',source:'coverage',paint:{'fill-color':coverageColor,'fill-opacity':.19}});
         setReady(true);
       });
-      view.on('click',event=>pick.current?.({lng:event.lngLat.lng,lat:event.lngLat.lat}));
+      view.on('click',event=>{if (pick.current) selectPoint(event.lngLat,pick.current);});
       view.on('error',()=>{if (!loaded) setUnavailable(true);});
       timer=setTimeout(()=>{if (!loaded) setUnavailable(true);},9000);
     }).catch(()=>{if(mounted)setUnavailable(true);});
@@ -69,7 +78,9 @@ export default function MapView({pins,overlays=[],onPick,label,overview}: Props)
       node.textContent=pin.short ?? '';
       node.addEventListener('click',event=>{event.stopPropagation();pin.onSelect?.();});
       const marker=new lib.Marker({element:node,draggable:!!pin.onMove}).setLngLat([pin.lng,pin.lat]).addTo(view);
-      marker.on('dragend',()=>pin.onMove?.(marker.getLngLat()));
+      marker.on('dragend',()=>{
+        if (pin.onMove && !selectPoint(marker.getLngLat(),pin.onMove)) marker.setLngLat([pin.lng,pin.lat]);
+      });
       markers.push(marker);
     }
     return ()=>markers.forEach(marker=>marker.remove());
@@ -82,6 +93,11 @@ export default function MapView({pins,overlays=[],onPick,label,overview}: Props)
   },[overlays,ready]);
   return <div className="map-frame" role="region" aria-label={label}>
     <div ref={container} className="absolute inset-0" aria-hidden={unavailable||undefined}/>
+    {ready && !unavailable && <button type="button" className="button absolute top-2 left-2 z-10"
+      onClick={changeExtent}>{regional?'Show Forest Hills demo':mapArea.name}</button>}
+    {outside && <p role="status" className="absolute bottom-6 left-2 z-10 rounded-control bg-paper px-2 py-1 text-sm">
+      Choose a pin in the {mapArea.name} map area.
+    </p>}
     {!ready && <div className="absolute inset-0 grid place-content-center bg-canvas px-5 text-center muted" role="status">
       {unavailable?'Map unavailable. Use the lists or coordinate fields.':'Loading neighborhood map…'}
     </div>}

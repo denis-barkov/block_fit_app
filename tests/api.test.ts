@@ -13,7 +13,7 @@ const scenario={category:'pull-up',radius:planning.radius,horizon:planning.horiz
 const request={category:'pull-up',note:'confidential test fixture',suggestion:'',point:null};
 let proxy:Awaited<ReturnType<typeof database>>;
 let env:Env;
-type ResidentState={location:SavedLocation;requests:Demand[]};
+type ResidentState={location:SavedLocation|null;requests:Demand[]};
 type Session={user:{role:string}|null};
 const json=<T>(response: Response)=>response.json() as Promise<T>;
 function client(initial='') {
@@ -37,7 +37,10 @@ async function register(email:string) {
   return resident;
 }
 async function location(clientInstance:ReturnType<typeof client>,point=pilot.center) {
-  expect((await clientInstance.send('/resident/location','PUT',{...point,label:'Test origin',confirmed:true})).ok).toBe(true);
+  expect((await clientInstance.send('/resident/location','PUT',{...point,label:'Test origin',useForRequests:true})).ok).toBe(true);
+}
+function move(clientInstance:ReturnType<typeof client>,point:{lat:number;lng:number},activeRequests:number) {
+  return clientInstance.send('/resident/location/move','POST',{...point,label:'Moved pin',activeRequests});
 }
 let a:ReturnType<typeof client>,b:ReturnType<typeof client>,staff:ReturnType<typeof client>;
 beforeAll(async()=>{
@@ -91,7 +94,7 @@ describe('connected Worker API and D1',()=>{
     expect((await staff.send('/staff/explain','POST',ref)).status).toBe(503);
     expect((await a.send('/resident/requests/'+id+'/withdraw','POST',{})).ok).toBe(true);
     const other={lat:pilot.center.lat+.004,lng:pilot.center.lng};
-    await location(a,other);
+    expect((await move(a,other,0)).ok).toBe(true);
     expect((await json<ResidentState>(await a.send('/resident'))).requests[0].lat).toBe(pilot.center.lat);
     expect((await a.send('/resident/requests','POST',request)).status).toBe(201);
     expect((await a.send('/resident/requests/'+id+'/restore','POST',{})).status).toBe(409);
@@ -102,10 +105,10 @@ describe('connected Worker API and D1',()=>{
     expect((await json<ResidentState>(await a.send('/resident'))).requests.find(entry=>entry.id===id)?.lat).toBe(other.lat);
     await env.DB.exec("CREATE TRIGGER fixture_fail BEFORE UPDATE ON demand BEGIN SELECT RAISE(ABORT,'test rollback'); END;");
     try {
-      expect((await a.send('/resident/location','PUT',{...pilot.center,label:'',confirmed:true})).status).toBe(500);
-      expect((await json<ResidentState>(await a.send('/resident'))).location.lat).toBe(other.lat);
+      expect((await move(a,pilot.center,1)).status).toBe(500);
+      expect((await json<ResidentState>(await a.send('/resident'))).location?.lat).toBe(other.lat);
     } finally {await env.DB.exec('DROP TRIGGER fixture_fail');}
-    await location(a);
+    expect((await move(a,pilot.center,1)).ok).toBe(true);
     const createEquipment=await staff.send('/staff/inventory/equipment','POST',inventory);
     expect(createEquipment.status,await createEquipment.clone().text()).toBe(201);
     const {id:equipmentId}=await json<{id:string}>(createEquipment);
@@ -176,6 +179,50 @@ describe('connected Worker API and D1',()=>{
       await env.DB.exec('UPDATE operations SET ai_frozen=1 WHERE id=1');
       await staff.send('/staff/inventory/candidates/'+siteId,'DELETE');
     }
+  });
+
+  it('accepts Brooklyn and Queens pins and safely toggles, moves and archives a resident location',async()=>{
+    const resident=await register('regional@blockfit.example');
+    const coney={lat:40.5756,lng:-73.9805};
+    const queens={lat:40.7528,lng:-73.7449};
+    const saved={...coney,label:'Coney Island fixture',useForRequests:true};
+    expect(await (await client().send('/inventory')).json()).toEqual([]);
+    expect((await resident.send('/resident/location','PUT',saved)).status).toBe(200);
+    const second={...request,category:'sit-up'};
+    const {id}=await json<{id:string}>(await resident.send('/resident/requests','POST',second));
+    expect(id).toBeTruthy();
+    const sit={...scenario,category:'sit-up'};
+    const before=await json<Comparison>(await staff.send('/staff/compare','POST',sit));
+    expect(before.origins).toMatchObject([{...coney,covered:false}]);
+    expect((await resident.send('/resident/location','PUT',{...saved,useForRequests:false})).ok).toBe(true);
+    expect((await resident.send('/resident/requests','POST',{...request,category:'parallel'})).status).toBe(409);
+    expect((await resident.send('/resident/location','DELETE')).status).toBe(409);
+    expect((await staff.send('/resident/location','DELETE')).status).toBe(403);
+    expect((await client().send('/resident/location','DELETE')).status).toBe(401);
+    expect((await resident.send('/resident/location','PUT',{...saved,...queens})).status).toBe(409);
+    expect((await move(resident,queens,0)).status).toBe(409);
+    const stayed=await json<ResidentState>(await resident.send('/resident'));
+    expect(stayed).toMatchObject({location:{...coney,useForRequests:false},requests:[{id,status:'recorded',...coney}]});
+    expect((await move(resident,queens,1)).ok).toBe(true);
+    const moved=await json<Comparison>(await staff.send('/staff/compare','POST',sit));
+    expect(moved.origins).toMatchObject([{...queens,covered:false}]);
+    expect(moved.revision).toBeGreaterThan(before.revision);
+    const create=await staff.send('/staff/inventory/equipment','POST',{...inventory,...queens,name:'Queens fixture',category:'sit-up'});
+    expect(create.status).toBe(201);
+    const {id:equipmentId}=await json<{id:string}>(create);
+    expect(await (await client().send('/inventory?q=Queens%20fixture')).json()).toMatchObject([{id:equipmentId,...queens}]);
+    expect((await json<Comparison>(await staff.send('/staff/compare','POST',sit))).unmet).toBe(0);
+    expect((await resident.send('/resident/location','PUT',{...saved,lat:42})).status).toBe(400);
+    expect((await resident.send('/resident/requests/'+id+'/withdraw','POST',{})).ok).toBe(true);
+    expect((await resident.send('/resident/location','DELETE')).ok).toBe(true);
+    const removed=await json<ResidentState>(await resident.send('/resident'));
+    expect(removed).toMatchObject({location:null,requests:[{id,status:'withdrawn',...queens}]});
+    expect(await env.DB.prepare('SELECT lat,lng,removed_at FROM removed_locations').first()).toMatchObject({
+      ...queens,removed_at:expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+    });
+    expect((await resident.send('/resident/requests/'+id+'/restore','POST',{})).status).toBe(404);
+    expect((await json<ResidentState>(await b.send('/resident'))).location).toMatchObject(pilot.center);
+    expect((await staff.send('/staff/inventory/equipment/'+equipmentId,'DELETE')).ok).toBe(true);
   });
 
   it('rejects duplicates, changes passwords securely and persists throttling',async()=>{

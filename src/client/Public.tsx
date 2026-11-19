@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState, type FormEvent } from 'react';
-import { categories, limits, pilot } from '../../config/settings';
+import { categories, limits, mapArea, pilot } from '../../config/settings';
 import type { Category, Coordinate, PublicEquipment } from '../contracts';
 import { metres } from '../server/planning';
 import { Categories, Feedback, Field, message } from './common';
@@ -37,10 +37,10 @@ export default function Public({request}: {request?: (category:Category)=>void})
   return <main>
     <section className="border-b border-line bg-white">
       <div className="shell grid gap-4 py-6 md:grid-cols-[2fr_1fr] md:items-end md:gap-6 md:py-10 xl:py-14">
-        <div><p className="eyebrow mb-3">Explore the {pilot.name} pilot</p>
+        <div><p className="eyebrow mb-3">Explore {mapArea.name}</p>
           <h1>Find outdoor fitness equipment.</h1>
           <p className="mt-3 max-w-2xl muted md:text-lg">See what’s nearby, check what’s been verified, and tell us what’s missing.</p></div>
-        <p className="border-l-2 border-brand pl-4 text-sm muted">Equipment and locations in this pilot are illustrative. Verify conditions before visiting.</p>
+        <p className="border-l-2 border-brand pl-4 text-sm muted">Demo equipment is concentrated in {pilot.name}. Check site details before visiting.</p>
       </div>
     </section>
     <div className="shell space-y-5 py-6">

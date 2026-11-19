@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
-import { categories,limits,pilot,planning } from '../../config/settings';
+import { categories,limits,mapArea,pilot,planning } from '../../config/settings';
 import type { Category, Coordinate, Demand, SavedLocation } from '../contracts';
 import { api,Categories,Coordinates,Feedback,Field,message,Modal,useAction } from './common';
 
@@ -10,7 +10,9 @@ export default function Resident({initialCategory}: {initialCategory:Category}) 
   const [data,setData]=useState<Data|null>(null);
   const [loadError,setLoadError]=useState('');
   const [draft,setDraft]=useState<Demand|true|null>(null);
-  const [locating,setLocating]=useState(false);
+  const [locating,setLocating]=useState<'location'|'request'|null>(null);
+  const [removing,setRemoving]=useState(false);
+  const activeRequests=data?.requests.filter(request=>request.status==='recorded').length ?? 0;
   const action=useAction();
   async function load() {setData(await api<Data>('/resident'));setLoadError('');}
   useEffect(()=>{void load().catch(error=>setLoadError(message(error)));},[]);
@@ -19,8 +21,8 @@ export default function Resident({initialCategory}: {initialCategory:Category}) 
     if (!data || openedHandoff.current || !new URLSearchParams(location.search).has('category')) return;
     openedHandoff.current=true;
     history.replaceState(null,'','/requests');
-    if (data.location) setDraft(true);
-    else setLocating(true);
+    if (data.location?.useForRequests) setDraft(true);
+    else setLocating('request');
   },[data]);
   function update(id:string,command:string) {
     void action.run(async()=>{await api(`/resident/requests/${id}/${command}`,'POST',{});await load();},
@@ -28,19 +30,27 @@ export default function Resident({initialCategory}: {initialCategory:Category}) 
   }
   return <main className="shell space-y-5 py-8">
     <header><p className="eyebrow">Resident account</p><h1>My requests</h1>
-      <p className="mt-2 muted">Request equipment near one private location in {pilot.name}.</p></header>
+      <p className="mt-2 muted">Request equipment near one private location in {mapArea.name}.</p></header>
     <Feedback error={loadError}/>
     {!data && (loadError ? <button className="button" onClick={()=>void load().catch(error=>setLoadError(message(error)))}>Retry</button> : <p role="status">Loading your requests…</p>)}
     {data && <div className="split">
       <section className="panel space-y-3"><h2>Saved location</h2>
-        {data.location ? <p>{data.location.label||'Private pilot location'}</p> : <p>No location saved yet.</p>}
-        <p className="text-sm muted">Use a demonstration location. You do not need to enter a home address.</p>
-        <button className="button" onClick={()=>setLocating(true)}>{data.location?'Change saved location':'Set private location'}</button>
+        {data.location ? <>
+          <p>{data.location.label||'Private saved location'}</p>
+          <p className="text-sm muted">{data.location.useForRequests?'Used for new requests.':'New requests require you to choose a location.'}</p>
+        </> : <p>No location saved yet.</p>}
+        <p className="text-sm muted">You can use a nearby landmark or intersection.</p>
+        <div className="flex flex-wrap gap-2">
+          <button className="button" disabled={action.busy} onClick={()=>setLocating('location')}>
+            {data.location?'Change saved location':'Set private location'}
+          </button>
+          {data.location && <button className="button" disabled={action.busy} onClick={()=>setRemoving(true)}>Remove saved location</button>}
+        </div>
       </section>
       <section className="panel space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2>Request history</h2>
-          <button className="button primary" onClick={()=>data.location?setDraft(true):setLocating(true)}>New request</button>
+          <button className="button primary" disabled={action.busy} onClick={()=>data.location?.useForRequests?setDraft(true):setLocating('request')}>New request</button>
         </div>
         <p className="text-sm muted">“Recorded” means your request is saved. Funding and installation require separate City review.</p>
         <Feedback {...action}/>
@@ -54,15 +64,26 @@ export default function Resident({initialCategory}: {initialCategory:Category}) 
             <button className="button" onClick={()=>setDraft(item)}>Edit request</button>
             <button className="button" disabled={action.busy} onClick={()=>update(item.id,'reconfirm')}>Still needed</button>
             <button className="button" disabled={action.busy} onClick={()=>update(item.id,'withdraw')}>Withdraw</button>
-          </>:<button className="button" disabled={action.busy} onClick={()=>update(item.id,'restore')}>Restore request</button>}</div>
+          </>:data.location?.useForRequests
+            ? <button className="button" disabled={action.busy} onClick={()=>update(item.id,'restore')}>Restore request</button>
+            : <p className="text-sm muted">Enable a saved location to restore this request.</p>}</div>
         </article>)}
       </section>
     </div>}
-    {locating && data && <LocationDialog saved={data.location} close={()=>setLocating(false)} save={async value=>{
-      await api('/resident/location','PUT',value);
-      await load();setLocating(false);
-      if(!data.location)setDraft(true);
-    }}/>}
+    {locating && data && <LocationDialog saved={data.location} activeRequests={activeRequests}
+      forRequest={locating==='request'} close={()=>setLocating(null)} save={async (value,move)=>{
+        await api(move?'/resident/location/move':'/resident/location',move?'POST':'PUT',move?{...value,activeRequests}:value);
+        await load();
+        if(locating==='request' && value.useForRequests) setDraft(true);
+        setLocating(null);
+      }}/>}
+    {removing && data?.location && <RemoveLocationDialog activeRequests={activeRequests} close={()=>setRemoving(false)}
+      remove={async()=>{
+        await api('/resident/location','DELETE');
+        await load();
+        setRemoving(false);
+        await action.run(async()=>{},'Saved location removed.');
+      }}/>}
     {draft && data?.location && <RequestDialog initial={draft===true?undefined:draft} initialCategory={requestCategory}
       saved={data.location} close={()=>setDraft(null)} save={async value=>{
         const id=draft===true?'':`/${draft.id}`;
@@ -72,23 +93,64 @@ export default function Resident({initialCategory}: {initialCategory:Category}) 
   </main>;
 }
 
-function LocationDialog({saved,close,save}: {saved:SavedLocation|null;close:()=>void;save:(value:SavedLocation&{confirmed:true})=>Promise<void>}) {
+const requestCount = (count: number) => `${count} active request${count===1?'':'s'}`;
+
+function LocationDialog({saved,activeRequests,forRequest,close,save}: {
+  saved:SavedLocation|null; activeRequests:number; forRequest:boolean; close:()=>void;
+  save:(value:SavedLocation,move:boolean)=>Promise<void>;
+}) {
   const [point,setPoint]=useState<Coordinate>(saved||pilot.center);
   const [label,setLabel]=useState(saved?.label||'');
+  const [useForRequests,setUseForRequests]=useState(saved?.useForRequests ?? true);
+  const [confirmMove,setConfirmMove]=useState(false);
+  const moveHeading=useRef<HTMLHeadingElement>(null);
   const action=useAction();
-  return <Modal title="Confirm private request origin" onClose={()=>{if(!action.busy)close();}}>
-    <form className="space-y-3" onSubmit={event=>{event.preventDefault();void action.run(()=>save({lat:point.lat,lng:point.lng,label,confirmed:true}));}}>
-      <p className="text-sm muted">Select a map pin, drag it, or enter coordinates in the pilot area.</p>
-      <Suspense fallback={<p>Loading map…</p>}><MapView label="Private location selection" onPick={setPoint} pins={[{
+  const moved=!!saved && (point.lat!==saved.lat || point.lng!==saved.lng);
+  useEffect(()=>{if(confirmMove)moveHeading.current?.focus();},[confirmMove]);
+  const submit=()=>void action.run(()=>save({lat:point.lat,lng:point.lng,label,useForRequests},moved));
+  return <Modal title={saved?'Change saved location':'Save a private location'} onClose={()=>{if(!action.busy)close();}}>
+    {confirmMove ? <div className="space-y-3">
+      <h3 ref={moveHeading} tabIndex={-1}>Move to this location?</h3>
+      <p>{activeRequests ? `You have ${requestCount(activeRequests)}. ${activeRequests===1?'It will move':'They will all move'} to this pin.`
+        : 'You have no active requests. This will update your saved pin.'}</p>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className="button" disabled={action.busy} onClick={()=>setConfirmMove(false)}>Back</button>
+        <button type="button" className="button primary" disabled={action.busy} onClick={submit}>Confirm move</button>
+      </div>
+      <Feedback error={action.error}/>
+    </div> : <form className="space-y-3" onSubmit={event=>{
+      event.preventDefault();
+      if(moved) setConfirmMove(true);
+      else submit();
+    }}>
+      <p className="text-sm muted">Select a pin, drag it, or enter coordinates in {mapArea.name}.</p>
+      <Suspense fallback={<p>Loading map…</p>}><MapView label="Private location selection" initialCenter={point} onPick={setPoint} pins={[{
         ...point,id:'private-origin',label:'Private location pin',kind:'reference',short:'•',onMove:setPoint,
       }]}/></Suspense>
       <Coordinates value={point} onChange={setPoint}/>
       <Field label="Location label (optional)"><input maxLength={limits.shortText} value={label} onChange={e=>setLabel(e.target.value)}/></Field>
-      <label className="flex items-center gap-2 text-sm"><input type="checkbox" required/>
-        {saved?'Move all my active requests to this location.':'Use this private origin to measure equipment coverage.'}</label>
-      <button className="button primary" disabled={action.busy}>Save location</button>
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={useForRequests}
+        onChange={event=>setUseForRequests(event.target.checked)}/> Use this saved location for new requests</label>
+      {forRequest && !useForRequests && <p className="text-sm muted">Enable this location to continue with your request.</p>}
+      <button className="button primary" disabled={action.busy}>{moved?'Move location':'Save location'}</button>
       <Feedback error={action.error}/>
-    </form>
+    </form>}
+  </Modal>;
+}
+
+function RemoveLocationDialog({activeRequests,close,remove}: {activeRequests:number;close:()=>void;remove:()=>Promise<void>}) {
+  const action=useAction();
+  return <Modal title="Remove saved location" onClose={()=>{if(!action.busy)close();}}>
+    <div className="space-y-3">
+      {activeRequests>0 ? <p>You have {requestCount(activeRequests)}. Withdraw the active requests before removing this pin.
+        To keep them active at another spot, use Move location instead.</p> : <>
+        <p>You’ll need to save a location again before you can make a new request. Past requests keep their recorded locations.</p>
+        <button type="button" className="button primary" disabled={action.busy} onClick={()=>void action.run(remove)}>
+          Confirm removal
+        </button>
+      </>}
+      <Feedback error={action.error}/>
+    </div>
   </Modal>;
 }
 
@@ -113,7 +175,7 @@ function RequestDialog({initial,initialCategory,saved,close,save}: {
     <form className="space-y-3" onSubmit={submit}>
       {review ? <>
         <h3 ref={reviewTitle} tabIndex={-1}>Review your request</h3>
-        <p><strong>{categories[category]}</strong> near {saved.label||'your private pilot location'}.</p>
+        <p><strong>{categories[category]}</strong> near {saved.label||'your private location'}.</p>
         {note && <p className="break-words">Note: {note}</p>}
         {suggestion && <p className="break-words">Suggested site: {suggestion}</p>}
         {point && <p>Suggested pin: {point.lat.toFixed(5)}, {point.lng.toFixed(5)}</p>}
@@ -125,7 +187,7 @@ function RequestDialog({initial,initialCategory,saved,close,save}: {
         <Field label="Suggested installation site (optional)"><textarea value={suggestion} maxLength={limits.text}
           onChange={e=>setSuggestion(e.target.value)}/></Field>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={point!==null}
-          onChange={event=>setPoint(event.target.checked?pilot.center:null)}/> Add a suggested point</label>
+          onChange={event=>setPoint(event.target.checked?{lat:saved.lat,lng:saved.lng}:null)}/> Add a suggested point</label>
         {point && <Coordinates value={point} onChange={setPoint}/>}
       </>}
       <div className="flex flex-wrap gap-2">

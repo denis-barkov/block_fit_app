@@ -1,5 +1,5 @@
 import { lazy,Suspense,useEffect,useState, type FormEvent } from 'react';
-import { categories,pilot,planning } from '../../config/settings';
+import { categories,mapArea,planning } from '../../config/settings';
 import type { Category, Explanation, Scenario } from '../contracts';
 import { feasibilityLabels,interpretation,newlyCovered,ranking,screening,type Comparison } from '../server/planning';
 import { api,Categories,Feedback,Field,message,useAction } from './common';
@@ -77,7 +77,7 @@ function ComparisonPage({testWorkspace}: {testWorkspace:boolean}) {
   const focus=choices.find(site=>site.id===focused);
   const focusSelected=!!focus && scenario.selected.includes(focus.id);
   return <main className="shell space-y-5 py-8">
-    <header><p className="eyebrow">City workspace · {pilot.name}</p><h1>Where could investment improve access?</h1>
+    <header><p className="eyebrow">City workspace · {mapArea.name}</p><h1>Where could investment improve access?</h1>
       <p className="mt-2 max-w-3xl muted">Compare candidate sites against recorded equipment demand, existing coverage, an upfront budget, and ongoing costs.</p></header>
     {testWorkspace && <p className="tag">Isolated automated-test workspace</p>}
     <div className="split">

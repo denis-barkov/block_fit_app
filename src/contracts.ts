@@ -1,11 +1,11 @@
 import { z } from 'zod';
-import { categories, limits, pilot, planning } from '../config/settings.ts';
+import { categories, limits, mapArea, planning } from '../config/settings.ts';
 
 export const category = z.enum(Object.keys(categories) as [keyof typeof categories, ...(keyof typeof categories)[]]);
 export type Category = z.infer<typeof category>;
 export const coordinate = z.object({
-  lat: z.number().finite().min(pilot.bounds.south).max(pilot.bounds.north),
-  lng: z.number().finite().min(pilot.bounds.west).max(pilot.bounds.east),
+  lat: z.number().finite().min(mapArea.bounds.south).max(mapArea.bounds.north),
+  lng: z.number().finite().min(mapArea.bounds.west).max(mapArea.bounds.east),
 });
 export type Coordinate = z.infer<typeof coordinate>;
 export const shortText = z.string().trim().max(limits.shortText);
@@ -13,7 +13,10 @@ const text = z.string().trim().max(limits.text);
 const id = z.string().min(1).max(64);
 const httpUrl = z.url({ protocol: /^https?$/ }).max(limits.text)
   .refine(value => !new URL(value).username && !new URL(value).password);
-export const locationInput = coordinate.extend({ label: shortText, confirmed: z.literal(true) }).strict();
+export const locationInput = coordinate.extend({ label: shortText, useForRequests: z.boolean().optional(),
+  confirmed: z.literal(true).optional() }).strict();
+const activeRequests = z.number().int().min(0).max(Object.keys(categories).length);
+export const moveLocationInput = locationInput.extend({ activeRequests });
 export const requestInput = z.object({
   category, note: text, suggestion: text, point: coordinate.nullable(),
 }).strict();
@@ -53,7 +56,7 @@ export type PublicEquipment = Omit<Equipment, 'parkId' | 'visible'> & { park: { 
 export type Demand = z.infer<typeof requestInput> & Coordinate & {
   id: string; status: 'recorded' | 'withdrawn'; createdAt: string; confirmedAt: string;
 };
-export type SavedLocation = Coordinate & { label: string };
+export type SavedLocation = Coordinate & { label: string; useForRequests: boolean };
 export const explanationSchema = z.object({
   summary: z.string(), tradeoffs: z.string(), checks: z.string(),
   highlightedOptionIds: z.array(z.string()), referencedOptionIds: z.array(z.string()),

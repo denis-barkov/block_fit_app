@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { locationInput, requestInput, type SavedLocation } from '../contracts';
+import { locationInput, moveLocationInput, requestInput, type SavedLocation } from '../contracts';
 import { requests, stmt } from './database';
 import { body, changed, type App } from './web';
 
@@ -7,16 +7,47 @@ export const resident = new Hono<App>();
 resident.get('/', async c => {
   const owner = c.get('user').id;
   const [location, history] = await Promise.all([
-    stmt(c.env.DB,'SELECT lat,lng,label FROM locations WHERE owner=?',owner).first<SavedLocation>(),
+    stmt(c.env.DB,'SELECT lat,lng,label,use_for_requests AS enabled FROM locations WHERE owner=?',owner)
+      .first<Omit<SavedLocation,'useForRequests'>&{enabled:number}>(),
     requests(c.env.DB,owner),
   ]);
-  return c.json({location, requests:history});
+  const saved = location && {lat:location.lat,lng:location.lng,label:location.label,useForRequests:location.enabled===1};
+  return c.json({location:saved, requests:history});
 });
+const activeCount = "(SELECT count(*) FROM demand WHERE owner=locations.owner AND status='recorded')";
+const changedLocation = 'Your saved location or active requests changed. Close this dialog and refresh My requests.';
+
 resident.put('/location', async c => {
-  const { lat,lng,label } = await body(c,locationInput);
-  await stmt(c.env.DB,`INSERT INTO locations (owner,lat,lng,label,updated_at) VALUES (?,?,?,?,?)
-    ON CONFLICT(owner) DO UPDATE SET lat=excluded.lat,lng=excluded.lng,label=excluded.label,updated_at=excluded.updated_at`,
-    c.get('user').id,lat,lng,label,new Date().toISOString()).run();
+  const {lat,lng,label,useForRequests} = await body(c,locationInput);
+  const enabled = useForRequests === undefined ? null : Number(useForRequests);
+  const result = await stmt(c.env.DB,`INSERT INTO locations (owner,lat,lng,label,updated_at,use_for_requests)
+    VALUES (?,?,?,?,?,coalesce(?,1))
+    ON CONFLICT(owner) DO UPDATE SET label=excluded.label,updated_at=excluded.updated_at,
+      use_for_requests=coalesce(?,locations.use_for_requests)
+    WHERE locations.lat=excluded.lat AND locations.lng=excluded.lng`,
+    c.get('user').id,lat,lng,label,new Date().toISOString(),enabled,enabled).run();
+  changed(result,'Use Move location to change your saved pin.',409);
+  return c.json({ok:true});
+});
+resident.post('/location/move', async c => {
+  const {lat,lng,label,useForRequests,activeRequests} = await body(c,moveLocationInput);
+  const result = await stmt(c.env.DB,`UPDATE locations SET lat=?,lng=?,label=?,updated_at=?,
+    use_for_requests=coalesce(?,use_for_requests) WHERE owner=? AND ${activeCount}=?`,
+    lat,lng,label,new Date().toISOString(),useForRequests===undefined?null:Number(useForRequests),
+    c.get('user').id,activeRequests).run();
+  changed(result,changedLocation,409);
+  return c.json({ok:true});
+});
+resident.delete('/location', async c => {
+  const db=c.env.DB;
+  const owner=c.get('user').id;
+  const [,removed] = await db.batch([
+    stmt(db,`INSERT INTO removed_locations(id,owner,lat,lng,label,removed_at)
+      SELECT ?,owner,lat,lng,label,? FROM locations WHERE owner=? AND ${activeCount}=0`,
+      crypto.randomUUID(),new Date().toISOString(),owner),
+    stmt(db,`DELETE FROM locations WHERE owner=? AND ${activeCount}=0`,owner),
+  ]);
+  changed(removed,'Withdraw your active requests before removing the saved location.',409);
   return c.json({ok:true});
 });
 resident.post('/requests', async c => {
@@ -26,9 +57,9 @@ resident.post('/requests', async c => {
   const id = crypto.randomUUID();
   const result = await stmt(c.env.DB,`INSERT INTO demand
     (id,owner,category,lat,lng,status,note,suggestion,suggested_lat,suggested_lng,created_at,confirmed_at)
-    SELECT ?,owner,?,lat,lng,'recorded',?,?,?,?,?,? FROM locations WHERE owner=?`,
+    SELECT ?,owner,?,lat,lng,'recorded',?,?,?,?,?,? FROM locations WHERE owner=? AND use_for_requests=1`,
     id,input.category,input.note,input.suggestion,input.point?.lat ?? null,input.point?.lng ?? null,now,now,owner).run();
-  changed(result,'Save a private location before recording a request.',409);
+  changed(result,'Choose a saved location to use for new requests.',409);
   return c.json({id},201);
 });
 resident.put('/requests/:id', async c => {
@@ -49,7 +80,8 @@ resident.post('/requests/:id/:action', async c => {
     reconfirm: stmt(db,"UPDATE demand SET confirmed_at=? WHERE id=? AND owner=? AND status='recorded'",now,id,owner),
     withdraw: stmt(db,"UPDATE demand SET status='withdrawn' WHERE id=? AND owner=? AND status='recorded'",id,owner),
     restore: stmt(db,`UPDATE demand SET status='recorded',lat=locations.lat,lng=locations.lng,confirmed_at=?
-      FROM locations WHERE demand.id=? AND demand.owner=? AND locations.owner=demand.owner AND demand.status='withdrawn'`,now,id,owner),
+      FROM locations WHERE demand.id=? AND demand.owner=? AND locations.owner=demand.owner AND locations.use_for_requests=1
+      AND demand.status='withdrawn'`,now,id,owner),
   };
   if (!Object.hasOwn(queries,action)) return c.json({error:'Action not found.'},404);
   changed(await queries[action as keyof typeof queries].run());

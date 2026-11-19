@@ -87,7 +87,7 @@ function InventoryForm({kind,record,parks,close,save}: {
   return <Modal title={`${record?'Edit':'Add'} ${singular[kind]}`} onClose={()=>{if(!action.busy)close();}}>
     <form className="space-y-3" onSubmit={submit}>
       <Field label="Name"><input name="name" defaultValue={record?.name} required maxLength={limits.shortText}/></Field>
-      <Suspense fallback={<p>Loading map…</p>}><MapView label="Inventory placement map" onPick={setPoint}
+      <Suspense fallback={<p>Loading map…</p>}><MapView label="Inventory placement map" initialCenter={record ?? undefined} onPick={setPoint}
         pins={[{...point,id:'placement',kind:'reference',label:'Inventory location pin',short:'•',onMove:setPoint}]}/></Suspense>
       <Coordinates value={point} onChange={setPoint}/>
       {kind==='parks' ? <div className="field-grid">

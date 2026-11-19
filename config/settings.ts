@@ -1,11 +1,15 @@
 export const categories = {
   'pull-up': 'Pull-up bars', parallel: 'Parallel bars', 'sit-up': 'Sit-up benches',
 } as const;
+// Shared map and coordinate-entry extent, including Coney Island and the Rockaways.
+export const mapArea = {
+  name: 'Brooklyn and Queens',
+  bounds: { south: 40.50, north: 40.84, west: -74.10, east: -73.67 },
+};
 export const pilot = {
   name: 'Forest Hills, Queens',
   center: { lat: 40.7202, lng: -73.8470 },
   demoOverview: { south: 40.713, north: 40.729, west: -73.856, east: -73.839 },
-  bounds: { south: 40.706, north: 40.733, west: -73.865, east: -73.828 },
 };
 export const planning = {
   radius: 200, minRadius: 50, maxRadius: 1000, horizon: 10, maxHorizon: 50,

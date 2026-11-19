@@ -2,7 +2,7 @@ import {afterAll,beforeAll,expect,it,vi} from 'vitest';
 import {readFileSync} from 'node:fs';
 import {unstable_splitSqlQuery} from 'wrangler';
 import {demoDemand,demoVersion,legacyDemandIds} from '../config/demo.ts';
-import {pilot,planning} from '../config/settings.ts';
+import {mapArea,pilot,planning} from '../config/settings.ts';
 import {createAuth} from '../src/server/auth';
 import {getComparison,inventory} from '../src/server/database';
 import {metres} from '../src/server/planning';
@@ -40,7 +40,7 @@ it('produces reproducible land clusters and materially different investment outc
   expect(demoDemand()).toEqual(demoDemand());
   const points=demoDemand();
   expect(new Set(points.map(point=>point.lat+','+point.lng)).size).toBe(points.length);
-  expect(points.every(({lat,lng})=>lat>pilot.bounds.south&&lat<pilot.bounds.north&&lng>pilot.bounds.west&&lng<pilot.bounds.east)).toBe(true);
+  expect(points.every(({lat,lng})=>lat>mapArea.bounds.south&&lat<mapArea.bounds.north&&lng>mapArea.bounds.west&&lng<mapArea.bounds.east)).toBe(true);
   expect(Math.max(...points.map(p=>p.lat))-Math.min(...points.map(p=>p.lat))).toBeGreaterThan(.008);
   expect(Math.max(...points.map(p=>p.lng))-Math.min(...points.map(p=>p.lng))).toBeGreaterThan(.009);
   expect(points.some(p=>points.filter(other=>metres(p,other)<70).length>=6)).toBe(true);

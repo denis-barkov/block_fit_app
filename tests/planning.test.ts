@@ -70,7 +70,7 @@ describe('AI comparison snapshot',()=>{
     const labelB={...b,name:'Second courtyard',fixture:true};
     const result=snapshot([labelA,labelB],['A','B']);
     expect(result).toMatchObject({
-      scenario:{area:'Forest Hills, Queens',horizonYears:10,radiusMetres:200,upfrontBudget:'$20,000',
+      scenario:{area:'Brooklyn and Queens',horizonYears:10,radiusMetres:200,upfrontBudget:'$20,000',
         upfrontBudgetMinorUnits:2_000_000,demandData:'synthetic',inventoryData:'synthetic',candidateData:'synthetic'},
       demand:{eligibleUniqueActiveRequesters:4,alreadyServed:1,baselineUnmet:3},
       costs:{currency:'USD',internalUnit:'cents',rangeOrder:['low','base','high']},
