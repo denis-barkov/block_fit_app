@@ -1,5 +1,5 @@
 import {copyFileSync,cpSync,mkdirSync,readFileSync,readdirSync,rmSync,writeFileSync} from 'node:fs';
-import {join,resolve} from 'node:path';
+import {basename,dirname,join,resolve} from 'node:path';
 import {bin,run} from './environment.mjs';
 import {CloudflareError} from './cloudflare.mjs';
 import {appTitleHTML,brandHead} from '../src/html.ts';
@@ -48,7 +48,7 @@ export function scanPublicAssets(directory,env) {
 
 export function packagePages(env,directory) {
   const output=join(directory,'pages');
-  const path=join(directory,'pages.wrangler.json');
+  const path=join(directory,'wrangler.json');
   // Recreate only the generated stage so removed files cannot survive into the next deployment.
   rmSync(output,{force:true,recursive:true});
   mkdirSync(output,{recursive:true,mode:0o700});
@@ -90,5 +90,6 @@ export function packagePages(env,directory) {
 }
 
 export function deployPages(env,{path,output}) {
-  run(bin('wrangler'),['pages','deploy',output,'--config',path,'--project-name',env.PAGES_PROJECT_NAME,'--branch',pagesBranch],env);
+  run(bin('wrangler'),['pages','deploy',basename(output),'--project-name',env.PAGES_PROJECT_NAME,'--branch',pagesBranch],
+    env,{cwd:dirname(path)});
 }
