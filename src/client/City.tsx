@@ -2,17 +2,17 @@ import { Download } from 'lucide-react';
 import { comparisonBriefFilename } from '../../config/app';
 import { mapArea } from '../../config/map-area';
 import { lazy,Suspense,useEffect,useState, type FormEvent } from 'react';
-import { categories,defaultCategory,planning } from '../../config/settings';
-import type { Category, Explanation, Scenario } from '../contracts';
+import { planning } from '../../config/settings';
+import type { Category, EquipmentType, Explanation, Scenario } from '../contracts';
 import { feasibilityLabels,interpretation,newlyCovered,ranking,screening,type Comparison } from '../server/planning';
-import { api,Categories,Feedback,Field,InfoHint,message,useAction } from './common';
+import { api,Categories,Feedback,Field,InfoHint,message,preferredType,useAction } from './common';
 import CityInventory,{type Inventory} from './CityInventory';
 
 const MapView=lazy(()=>import('./Map'));
 const dollars=(amount:number|null)=>amount===null?'N/A':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(amount/100);
 type Result=Comparison&{explanation?:Explanation};
-const initial:Scenario={category:defaultCategory,radius:planning.radius,horizon:planning.horizon,budget:planning.budget,selected:[]};
-function InventoryPage() {
+const initial=(types:EquipmentType[]):Scenario=>({category:preferredType(types),radius:planning.radius,horizon:planning.horizon,budget:planning.budget,selected:[]});
+function InventoryPage({types}: {types:EquipmentType[]}) {
   const [inventory,setInventory]=useState<Inventory>();
   const [error,setError]=useState('');
   async function load() {
@@ -20,38 +20,44 @@ function InventoryPage() {
     setError('');
   }
   const retry=()=>void load().catch(error=>setError(message(error)));
-  useEffect(retry,[]);
+  useEffect(retry,[types]);
   return <main className="shell space-y-5 py-8">
     <h1>Manage inventory</h1>
     <Feedback error={error}/>
     {error && <button className="button" onClick={retry}>Retry inventory</button>}
-    {inventory ? <CityInventory data={inventory} refresh={load}/> : !error && <p role="status">Loading staff inventory…</p>}
+    {inventory ? <CityInventory data={inventory} types={types} refresh={load}/> : !error && <p role="status">Loading staff inventory…</p>}
   </main>;
 }
 
-export default function City({inventoryOnly,testWorkspace}: {inventoryOnly:boolean;testWorkspace:boolean}) {
-  return inventoryOnly?<InventoryPage/>:<ComparisonPage testWorkspace={testWorkspace}/>;
+export default function City({inventoryOnly,testWorkspace,types}: {inventoryOnly:boolean;testWorkspace:boolean;types:EquipmentType[]}) {
+  return inventoryOnly?<InventoryPage types={types}/>:<ComparisonPage types={types} testWorkspace={testWorkspace}/>;
 }
 
-function ComparisonPage({testWorkspace}: {testWorkspace:boolean}) {
-  const [scenario,setScenario]=useState<Scenario>(initial);
+function ComparisonPage({testWorkspace,types}: {testWorkspace:boolean;types:EquipmentType[]}) {
+  const [scenario,setScenario]=useState<Scenario>(()=>initial(types));
   const [result,setResult]=useState<Result>();
+  const [resultCatalog,setResultCatalog]=useState<EquipmentType[]>();
   const [focused,setFocused]=useState('');
   const action=useAction();
   const report=useAction();
   const ai=useAction();
-  async function calculate(value:Scenario) {setResult(await api<Result>('/staff/compare','POST',value));}
-  useEffect(()=>{void action.run(()=>calculate(initial));},[]);
+  const available=types.some(type=>type.id===scenario.category);
+  async function calculate(value:Scenario) {
+    setResult(undefined);
+    const next=await api<Result>('/staff/compare','POST',value);
+    setResult(next);setResultCatalog(types);
+  }
+  useEffect(()=>{if(scenario.category)void action.run(()=>calculate(scenario));},[]);
   function apply(event:FormEvent) {
     event.preventDefault();
     void action.run(async()=>calculate(scenario),'Comparison updated.');
   }
-  const applied=result?.scenario;
+  const applied=available&&resultCatalog===types?result?.scenario:undefined;
   const current=applied && applied.category===scenario.category && applied.radius===scenario.radius &&
     applied.budget===scenario.budget && applied.horizon===scenario.horizon &&
     applied.selected.join(',')===scenario.selected.join(',') ? result ?? null : null;
   const requestRef=current && {scenario:current.scenario,revision:current.revision,calculatedAt:current.calculatedAt};
-  const inspected=result?.scenario.category===scenario.category?result:undefined;
+  const inspected=applied?.category===scenario.category?result:undefined;
   const choices=inspected?.sites??[];
   const select=(category:Category|'')=>{
     if(!category)return;
@@ -87,7 +93,8 @@ function ComparisonPage({testWorkspace}: {testWorkspace:boolean}) {
       <form id="comparison-assumptions" aria-labelledby="comparison-assumptions-heading" className="panel space-y-3" onSubmit={apply}>
         <h2 id="comparison-assumptions-heading">1. Equipment and assumptions</h2>
         <div className="field-grid grid-cols-2 items-end xl:grid-cols-1">
-          <Field label="Equipment type"><select disabled={action.busy} value={scenario.category} onChange={event=>select(event.target.value as Category)}>{Object.entries(categories).map(([key,name])=><option value={key} key={key}>{name}</option>)}</select></Field>
+          <Field label="Equipment type"><Categories types={types} disabled={action.busy} value={scenario.category} onChange={select}
+            unavailable={result?.categoryName}/></Field>
           <Field label="Straight-line radius (m)"><input type="number" min={planning.minRadius} max={planning.maxRadius}
             value={Number.isNaN(scenario.radius)?'':scenario.radius} required onChange={e=>setScenario({...scenario,radius:e.target.valueAsNumber})}/></Field>
           <Field label="Upfront budget (USD)"><input type="number" step=".01" min="0" max={planning.maxBudget/100}
@@ -95,10 +102,11 @@ function ComparisonPage({testWorkspace}: {testWorkspace:boolean}) {
           <Field label="Planning horizon (years)"><input type="number" min="1" max={planning.maxHorizon}
             value={Number.isNaN(scenario.horizon)?'':scenario.horizon} required onChange={e=>setScenario({...scenario,horizon:e.target.valueAsNumber})}/></Field>
         </div>
-        <button className="button" disabled={action.busy}>Apply assumptions</button><Feedback {...action}/>
+        {!available && <p className="text-sm muted">{types.length?'This type is currently unavailable for planning. Choose an active type.':'There are no active equipment types. Add or reactivate one in Equipment types.'}</p>}
+        <button className="button" disabled={action.busy||!available}>Apply assumptions</button><Feedback {...action}/>
       </form>
       <section className="panel space-y-3"><h2>2. Inspect unmet demand</h2>
-        {inspected && <p className="font-bold">{categories[inspected.scenario.category]} · {inspected.scenario.radius} m straight-line radius</p>}
+        {inspected && <p className="font-bold">{inspected.categoryName} · {inspected.scenario.radius} m straight-line radius</p>}
         {inspected && <p><strong>{inspected.demandCount-inspected.unmet} already covered</strong> · <strong>{inspected.unmet} unmet</strong> · {inspected.demandCount} recorded requesters
           {inspected.origins.some(origin=>origin.synthetic) && <> · {inspected.origins.filter(origin=>origin.synthetic).length} synthetic</>}</p>}
         <p className="text-sm muted">Distances are straight-line approximations. Private demand pins are restricted to staff.</p>
@@ -134,7 +142,7 @@ function ComparisonPage({testWorkspace}: {testWorkspace:boolean}) {
               onChange={()=>toggle(site.id)}/>
             {site.name}</label>)}
         </fieldset>
-        <button type="submit" form="comparison-assumptions" className="button primary" disabled={action.busy}>Compare sites</button>
+        <button type="submit" form="comparison-assumptions" className="button primary" disabled={action.busy||!available}>Compare sites</button>
       </section>
     </div>
     <section className="panel space-y-4" aria-labelledby="comparison-heading">

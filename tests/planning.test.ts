@@ -10,7 +10,8 @@ function cost(upfront:number,maintenance:number): Costs {
 }
 const coordinate=(m:number)=>({lat:0,lng:m/111195});
 const origin=(id:string,m:number): DemandOrigin=>({...coordinate(m),id,synthetic:true});
-const site=(id:string,m:number,costs:Costs): Candidate=>({...coordinate(m),category:'pull-up',id,name:id,
+const categoryName='Pull-up bars';
+const site=(id:string,m:number,costs:Costs): Candidate=>({...coordinate(m),category:'pull-up',categoryName,categoryActive:true,id,name:id,
   feasibility:'suitable-for-comparison',parkId:null,projectUrl:null,notes:'',costs});
 const a=site('A',450,cost(1_200_000,40_000)), b=site('B',740,cost(1_500_000,50_000));
 const sample=[origin('covered',0),origin('a-only',330),origin('both',590),origin('b-only',850)];
@@ -47,7 +48,7 @@ describe('investment comparisons',()=>{
   it('exports revision and sanitized site content with no private origins',()=>{
     const site={...a,name:'# Heading\n<img src=x>',notes:'<script>alert(1)</script>'};
     const results=compare({...scenario,selected:[]},sample,[],[site])!;
-    const comparison:Comparison={...results,scenario:{...scenario,selected:[]},revision:8,calculatedAt:'2026-11-18T00:00:00.000Z',
+    const comparison:Comparison={...results,scenario:{...scenario,selected:[]},categoryName,revision:8,calculatedAt:'2026-11-18T00:00:00.000Z',
       sites:[site],origins:[{lng:1.23456789,lat:12.3456789,synthetic:false}],existing:[],inventorySources:['Demo']};
     const output=makeBrief(comparison);
     expect(output).toContain('Revision: 8');
@@ -62,7 +63,7 @@ describe('AI comparison snapshot',()=>{
     const input={...scenario,selected};
     const existing=[{...coordinate(0),fixture:true}];
     const result=compare(input,sample,existing,candidates)!;
-    return comparisonSnapshot({...result,scenario:input,revision:8,calculatedAt:'2026-11-18T00:00:00.000Z',
+    return comparisonSnapshot({...result,scenario:input,categoryName,revision:8,calculatedAt:'2026-11-18T00:00:00.000Z',
       sites:candidates,origins:sample,existing,inventorySources:['Demo']});
   }
   it('sends computed equal-coverage tradeoffs, union, cost ranges and budget fit without individual details',()=>{

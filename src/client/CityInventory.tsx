@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState, type FormEvent } from 'react';
-import { categories,defaultCategory,limits,pilot,planning } from '../../config/settings';
-import { costKeys, type Candidate, type Category, type Coordinate, type Costs, type Equipment, type Park } from '../contracts';
-import { api,Categories,Coordinates,Feedback,Field,Modal,useAction } from './common';
+import { limits,pilot,planning } from '../../config/settings';
+import { costKeys, type Candidate, type Coordinate, type Costs, type Equipment, type EquipmentType, type Park } from '../contracts';
+import { api,Categories,Coordinates,Feedback,Field,Modal,preferredType,useAction } from './common';
 
 const MapView=lazy(()=>import('./Map'));
 const labels={parks:'Parks / areas',equipment:'Existing equipment',candidates:'Candidate sites'};
@@ -13,27 +13,29 @@ export type Inventory={parks:Park[];equipment:Equipment[];candidates:Candidate[]
 type Kind=keyof Inventory;
 type Record=Park|Equipment|Candidate;
 
-export default function CityInventory({data,refresh}: {data:Inventory;refresh:()=>Promise<void>}) {
+export default function CityInventory({data,types,refresh}: {data:Inventory;types:EquipmentType[];refresh:()=>Promise<void>}) {
   const [kind,setKind]=useState<Kind>('equipment');
   const [editing,setEditing]=useState<Record|null|undefined>();
   const [archive,setArchive]=useState<Record|null>(null);
   const action=useAction();
   return <section className="panel space-y-4">
     <div className="flex flex-wrap items-center justify-between gap-2"><h2>Manage inventory</h2>
-      <button className="button primary" onClick={()=>setEditing(null)}>Add {singular[kind]}</button></div>
+      <button className="button primary" disabled={kind!=='parks'&&!types.length} onClick={()=>setEditing(null)}>Add {singular[kind]}</button></div>
     <div className="flex flex-wrap gap-2" aria-label="Inventory type">
       {(Object.keys(labels) as Kind[]).map(value=><button key={value} className={`button ${kind===value?'primary':''}`}
         aria-pressed={kind===value} onClick={()=>setKind(value)}>{labels[value]}</button>)}
     </div><Feedback {...action}/>
+    {kind!=='parks'&&!types.length && <p>Activate an equipment type before adding a record.</p>}
     {!data[kind].length && <p>No active {labels[kind].toLowerCase()}.</p>}
     <ul className="divide-y divide-line">
       {data[kind].map(record=><li key={record.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-        <div><strong>{record.name}</strong>{record.fixture && <span className="ml-2 tag">Illustrative demo record</span>}{'category' in record && <p className="text-sm muted">{categories[record.category]}</p>}</div>
+        <div><strong>{record.name}</strong>{record.fixture && <span className="ml-2 tag">Illustrative demo record</span>}{'category' in record && <p className="text-sm muted">
+          {record.categoryName}{!record.categoryActive && ' · Type currently unavailable'}</p>}</div>
         <div className="flex gap-2"><button className="button" onClick={()=>setEditing(record)}>Edit<span className="sr-only"> {record.name}</span></button>
           <button className="button" onClick={()=>setArchive(record)}>Archive<span className="sr-only"> {record.name}</span></button></div>
       </li>)}
     </ul>
-    {editing!==undefined && <InventoryForm key={editing?.id||kind} kind={kind} record={editing} parks={data.parks} close={()=>setEditing(undefined)}
+    {editing!==undefined && <InventoryForm key={editing?.id||kind} kind={kind} record={editing} types={types} parks={data.parks} close={()=>setEditing(undefined)}
       save={async value=>{
         await api(`/staff/inventory/${kind}${editing?`/${editing.id}`:''}`,editing?'PUT':'POST',value);
         await refresh();setEditing(undefined);
@@ -50,11 +52,12 @@ export default function CityInventory({data,refresh}: {data:Inventory;refresh:()
   </section>;
 }
 
-function InventoryForm({kind,record,parks,close,save}: {
-  kind:Kind;record:Record|null;parks:Park[];close:()=>void;save:(value:object)=>Promise<void>;
+function InventoryForm({kind,record,parks,types,close,save}: {
+  kind:Kind;record:Record|null;parks:Park[];types:EquipmentType[];close:()=>void;save:(value:object)=>Promise<void>;
 }) {
   const [point,setPoint]=useState<Coordinate>(record?{lat:record.lat,lng:record.lng}:pilot.center);
-  const [category,setCategory]=useState<Category>(record && 'category' in record?record.category:defaultCategory);
+  const currentType=record&&'category'in record?record:null;
+  const [category,setCategory]=useState(currentType?.category??preferredType(types));
   const park=record as Park|null;
   const equipment=record as Equipment|null;
   const candidate=record as Candidate|null;
@@ -96,7 +99,7 @@ function InventoryForm({kind,record,parks,close,save}: {
         <Field label="Source"><textarea name="source" defaultValue={park?.source} maxLength={limits.text}/></Field>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="cityMaintained" defaultChecked={park?.cityMaintained}/> Maintained by NYC Parks</label>
       </div>:<div className="field-grid">
-        <Field label="Equipment type"><Categories value={category} onChange={value=>value&&setCategory(value)}/></Field>
+        <Field label="Equipment type"><Categories types={types} value={category} onChange={setCategory} unavailable={currentType?.categoryName}/></Field>
         <Field label="Park or area"><select name="parkId" defaultValue={equipment?.parkId||''}>
           <option value="">None (standalone)</option>{parks.map(site=><option key={site.id} value={site.id}>{site.name}</option>)}
         </select></Field>

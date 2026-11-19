@@ -1,7 +1,6 @@
 import { metres } from '../geo';
 export { metres } from '../geo';
 import { appIdentity } from '../../config/app';
-import { categories } from '../../config/settings';
 import { costKeys, upfrontKeys, type Candidate, type Coordinate, type Costs, type Scenario } from '../contracts';
 
 export type DemandOrigin = Coordinate & { id: string; synthetic: boolean };
@@ -75,7 +74,7 @@ export function compare(scenario: Scenario, demand: DemandOrigin[], existing: Co
 
 export type Comparison = Omit<NonNullable<ReturnType<typeof compare>>,'covered'> & {
   testWorkspace?: boolean;
-  scenario: Scenario; revision: number; calculatedAt: string; sites: Candidate[]; origins: (Coordinate & {synthetic: boolean; covered?:boolean})[];
+  scenario: Scenario; categoryName:string; revision: number; calculatedAt: string; sites: Candidate[]; origins: (Coordinate & {synthetic: boolean; covered?:boolean})[];
   existing: (Coordinate & {fixture?:boolean})[]; inventorySources: string[];
 };
 
@@ -104,7 +103,7 @@ export function makeBrief(result: Comparison, explanation?: import('../contracts
   const syntheticCount=result.origins.filter(origin=>origin.synthetic).length;
   const lines = [
     `# ${appIdentity.name} investment comparison`, '',
-    `Equipment: ${categories[scenario.category]} | Revision: ${result.revision} | Calculated: ${result.calculatedAt}`,
+    `Equipment: ${clean(result.categoryName)} | Revision: ${result.revision} | Calculated: ${result.calculatedAt}`,
     `Radius: ${scenario.radius} m straight-line approximation | Horizon: ${scenario.horizon} years | Upfront budget: ${money(scenario.budget)}`,
     `Recorded demand: ${result.demandCount} | Already covered: ${result.demandCount-result.unmet} | Unmet before installation: ${result.unmet}`, '',
     ...(result.testWorkspace?['Automated-test comparison. Uses isolated test requests.']:[]),

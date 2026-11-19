@@ -6,9 +6,10 @@ import { z } from 'zod';
 import { appIdentity } from '../../config/app';
 import { limits } from '../../config/settings';
 import { category } from '../contracts';
-import { loginLink,residentLogin,returnPath,staffHome,staffInventoryPage,staffLogin } from '../routes';
+import { loginLink,residentLogin,returnPath,staffCatalogPage,staffHome,staffInventoryPage,staffLogin } from '../routes';
 import { createAuth } from './auth';
 import { inventory, stmt, throttle } from './database';
+import { activeEquipmentType, publicTypes, typeUnavailable } from './catalog';
 import { resident } from './resident';
 import { staff } from './staff';
 import { body, problem, type App } from './web';
@@ -44,10 +45,12 @@ app.use('/api/*',async (c,next) => {
 app.use('/api/*',bodyLimit({maxSize:limits.bodyBytes,onError:() => problem(413,'This request is too large.')}));
 app.get('/api/config',c => c.json({contact:c.env.CONTACT_EMAIL || null}));
 app.get('/api/health',c => c.json({ok:true}));
+app.get('/api/catalog',async c=>c.json(await publicTypes(c.env.DB)));
 app.get('/api/inventory',etag(),async c => {
   const filter = c.req.query('category');
   const search = c.req.query('q')?.trim() ?? '';
   if (filter && !category.safeParse(filter).success) problem(400,'Choose a valid equipment type.');
+  if (filter && !await activeEquipmentType(c.env.DB,filter)) problem(409,typeUnavailable);
   if (search.length > limits.shortText) problem(400,'Search text is too long.');
   const after=c.req.query('after');
   if(after!==undefined && after.length>64) problem(400,'Invalid inventory cursor.');
@@ -125,9 +128,12 @@ app.get('*',async c => {
   if (isStaffPage) {
     if (!session && path!==staffLogin) return c.redirect(loginLink('staff',here),302);
     if (session?.user.role==='staff') {
-      if (path===staffLogin) return c.redirect(session.user.purpose==='automated-test'?staffHome:returnPath('staff',next),302);
+      if (path===staffLogin) {
+        const destination=returnPath('staff',next);
+        return c.redirect(session.user.purpose==='automated-test'&&destination!==staffCatalogPage?staffHome:destination,302);
+      }
       if (path===staffInventoryPage && session.user.purpose==='automated-test') return c.redirect(staffHome,302);
-      if (![staffHome,staffInventoryPage].includes(path)) return c.redirect(staffHome,302);
+      if (![staffHome,staffInventoryPage,staffCatalogPage].includes(path)) return c.redirect(staffHome,302);
     }
   } else {
     if (!session && path==='/requests') return c.redirect(loginLink('resident',here),302);

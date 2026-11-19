@@ -1,9 +1,34 @@
 import { z } from 'zod';
 import { isInServiceArea, pinOutsideServiceArea } from '../config/map-area.ts';
-import { categories, limits, planning } from '../config/settings.ts';
+import { catalogLimits, limits, planning } from '../config/settings.ts';
 
-export const category = z.enum(Object.keys(categories) as [keyof typeof categories, ...(keyof typeof categories)[]]);
+export const category = z.string().max(64).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 export type Category = z.infer<typeof category>;
+const controls=/\p{Cc}/u;
+const catalogText=z.string().refine(value=>!controls.test(value),'Remove control characters.').transform(value=>value.trim());
+export const typeName=catalogText.transform(value=>value.replace(/\s+/gu,' '))
+  .pipe(z.string().min(catalogLimits.nameMin).max(catalogLimits.nameMax));
+export const typeNameKey=(name:string)=>name.normalize('NFKC').trim().replace(/\s+/gu,' ').toUpperCase().toLowerCase();
+export const typeFields=z.object({name:typeName,description:catalogText.pipe(z.string().max(catalogLimits.description)).default('')}).strict();
+export const typeUpdate=typeFields.extend({active:z.boolean(),version:z.number().int().positive(),labelCorrection:z.literal(true).optional()}).strict();
+export const typeDecision=z.discriminatedUnion('action',[
+  z.object({action:z.literal('create'),name:typeName}).strict(),
+  z.object({action:z.literal('match'),category}).strict(),
+  z.object({action:z.literal('reject'),reason:catalogText.pipe(z.string().min(1).max(catalogLimits.reason))}).strict(),
+]);
+export type EquipmentType={id:string;name:string;description:string;active:boolean};
+export type StaffEquipmentType=EquipmentType&{version:number};
+export function matchingTypes(types:EquipmentType[],name:string,exclude?:string) {
+  const key=typeNameKey(name);
+  if(key.length<catalogLimits.nameMin) return [];
+  return types.filter(type=>type.id!==exclude&&typeNameKey(type.name).includes(key)).slice(0,catalogLimits.matches);
+}
+export type TypeProposal={
+  id:string;name:string;description:string;submittedAt:string;status:'pending'|'approved'|'rejected'|'withdrawn';
+};
+export type ResidentProposal=TypeProposal&{
+  categoryName:string|null;decidedAt:string|null;reason:string|null;requestId:string|null;reusedRequest:boolean;
+};
 export const coordinate = z.object({
   lat: z.number().finite().min(-90).max(90),
   lng: z.number().finite().min(-180).max(180),
@@ -16,12 +41,14 @@ const httpUrl = z.url({ protocol: /^https?$/ }).max(limits.text)
   .refine(value => !new URL(value).username && !new URL(value).password);
 const savedLocationInput = coordinate.extend({ label: shortText, useForRequests: z.boolean().optional(),
   confirmed: z.literal(true).optional() }).strict();
-const activeRequests = z.number().int().min(0).max(Object.keys(categories).length);
+const activeRequests = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 export const locationInput = savedLocationInput.refine(isInServiceArea,pinOutsideServiceArea);
 export const moveLocationInput = savedLocationInput.extend({ activeRequests }).refine(isInServiceArea,pinOutsideServiceArea);
-export const requestInput = z.object({
-  category, note: text, suggestion: text, point: coordinate.refine(isInServiceArea,pinOutsideServiceArea).nullable(),
-}).strict();
+const requestDetails = z.object({
+  note: text, suggestion: text, point: coordinate.refine(isInServiceArea,pinOutsideServiceArea).nullable(),
+});
+export const requestInput = requestDetails.extend({category}).strict();
+export const proposalInput=requestDetails.extend({...typeFields.shape,submissionKey:z.uuid()}).strict();
 const namedPoint = coordinate.extend({ name: shortText.min(1) });
 export const parkInput = namedPoint.extend({ externalId: shortText, source: text, hours: shortText, cityMaintained:z.boolean() }).strict();
 export const equipmentInput = namedPoint.extend({
@@ -52,10 +79,11 @@ export const scenarioInput = z.object({
 }).strict();
 export type Scenario = z.infer<typeof scenarioInput>;
 export type Park = z.infer<typeof parkInput> & { id: string; fixture?: boolean };
-export type Equipment = z.infer<typeof equipmentInput> & { id: string; fixture?: boolean };
-export type Candidate = z.infer<typeof candidateInput> & { id: string; fixture?: boolean };
+type TypeReference={categoryName:string;categoryActive:boolean};
+export type Equipment = z.infer<typeof equipmentInput> & TypeReference & { id: string; fixture?: boolean };
+export type Candidate = z.infer<typeof candidateInput> & TypeReference & { id: string; fixture?: boolean };
 export type PublicEquipment = Omit<Equipment, 'parkId' | 'visible'> & { park: { name: string; hours: string; cityMaintained: boolean } | null };
-export type Demand = z.infer<typeof requestInput> & Coordinate & {
+export type Demand = z.infer<typeof requestInput> & TypeReference & Coordinate & {
   id: string; status: 'recorded' | 'withdrawn'; createdAt: string; confirmedAt: string;
 };
 export type SavedLocation = Coordinate & { label: string; useForRequests: boolean };

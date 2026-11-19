@@ -424,3 +424,111 @@ test('public distance and copy work anonymously and a resident explicitly genera
   expect(calls).toBe(2);
   await panel.screenshot({path:test.info().outputPath('travel-desktop.png')});
 });
+
+test('staff manages the catalog and corrects a resident proposal on narrow screens',async({page,browser,baseURL})=>{
+  const {staff}=credentials();
+  const resident=await browser.newPage({baseURL,viewport:{width:390,height:844},hasTouch:true});
+  const visitor=await browser.newPage({baseURL,viewport:{width:768,height:900}});
+  const proposed='Grip ladderz';
+  const approved='Grip ladders';
+  try {
+    await allowFallback(resident);
+    await allowFallback(visitor);
+    await page.goto('/staff/equipment-types');
+    await expect(page).toHaveURL(/\/staff\/login\?returnTo=/);
+    await page.getByLabel('Email').fill(staff.email);
+    await page.getByLabel('Password',{exact:true}).fill(staff.password);
+    await page.getByRole('button',{name:'Sign in',exact:true}).click();
+    await expect(page.getByRole('link',{name:'Equipment types'})).toHaveAttribute('aria-current','page');
+    await page.getByRole('button',{name:'Add type'}).click();
+    let dialog=page.getByRole('dialog');
+    await dialog.getByLabel('Type name').fill('Incline ladders');
+    await dialog.getByLabel('Description (optional)').fill('Illustrative generic type');
+    await dialog.getByRole('button',{name:'Create type'}).click();
+    await expect(page.getByText('Equipment type added.')).toBeVisible();
+    await page.getByRole('button',{name:'Edit Incline ladders'}).click();
+    await dialog.getByLabel('Type name').fill('Incline training ladders');
+    await dialog.getByRole('checkbox',{name:/same kind of equipment/}).check();
+    await dialog.getByRole('button',{name:'Save changes'}).click();
+    await expect(page.getByRole('button',{name:'Edit Incline training ladders'})).toBeVisible();
+    await visitor.goto('/');
+    await expect(visitor.getByLabel('Equipment type').getByRole('option',{name:'Incline training ladders'})).toHaveCount(1);
+
+    const registered=await resident.request.post('/api/auth/sign-up/email',{
+      headers:{Origin:baseURL!},data:{name:'Catalog browser fixture',email:'catalog-browser@blockfit.example',
+        password:passphrase,confirmation:passphrase},
+    });
+    expect(registered.status()).toBe(200);
+    await resident.goto('/requests');
+    await expect(resident.getByRole('link',{name:'Equipment types'})).toHaveCount(0);
+    await resident.getByRole('button',{name:'New request'}).tap();
+    const residentDialog=resident.getByRole('dialog');
+    await residentDialog.getByRole('button',{name:'Save location'}).tap();
+    await residentDialog.getByRole('button',{name:'Suggest another type'}).tap();
+    await residentDialog.getByLabel('Proposed equipment type').fill('pull-up');
+    await expect(residentDialog.getByRole('button',{name:'Use Pull-up bars'})).toBeVisible();
+    await residentDialog.getByLabel('Proposed equipment type').fill(proposed);
+    await residentDialog.getByLabel('Type description (optional)').fill('Generic synthetic apparatus');
+    await residentDialog.getByLabel('Note (optional)',{exact:true}).fill('Request note kept through review');
+    await residentDialog.getByRole('button',{name:'Review suggestion'}).tap();
+    await expect(residentDialog.getByRole('heading',{name:'Review your type suggestion'})).toBeFocused();
+    await residentDialog.getByRole('button',{name:'Submit type suggestion'}).tap();
+    await expect(resident.getByText('Awaiting type review',{exact:true})).toBeVisible();
+    await expect(resident.getByText('Recorded',{exact:true})).toHaveCount(0);
+    await expect(visitor.getByLabel('Equipment type').getByRole('option',{name:proposed})).toHaveCount(0);
+
+    await page.getByRole('button',{name:'Proposals',exact:true}).click();
+    await page.setViewportSize({width:390,height:844});
+    const help=page.getByRole('button',{name:'About type review'});
+    await help.press('Enter');
+    await expect(help).toHaveAttribute('aria-expanded','true');
+    await help.press('Escape');
+    await expect(help).toHaveAttribute('aria-expanded','false');
+    await expect(help).toBeFocused();
+    await page.screenshot({path:test.info().outputPath('catalog-proposals-390.png'),animations:'disabled'});
+    await noPageOverflow(page);
+    await page.getByRole('button',{name:'Review '+proposed}).click();
+    dialog=page.getByRole('dialog',{name:'Review type proposal'});
+    await dialog.getByLabel('Approved type name').fill(approved);
+    await dialog.getByRole('button',{name:'Confirm approval'}).click();
+    await expect(page.getByText('Review decision saved.')).toBeVisible();
+    await expect(page.getByText('No proposals with this status.')).toBeVisible();
+    await resident.reload();
+    await expect(resident.getByText('Approved as '+approved+'.')).toBeVisible();
+    await resident.getByRole('link',{name:'View equipment request'}).tap();
+    await expect(resident.locator('article:target')).toContainText('Request note kept through review');
+    await noPageOverflow(resident);
+    const published=(await (await page.request.get('/api/catalog')).json()).find((item:{name:string})=>item.name===approved);
+    const added=await page.request.post('/api/staff/inventory/equipment',{
+      headers:{Origin:baseURL!},data:{...pilot.center,category:published.id,name:'Synthetic grip installation',parkId:null,
+        condition:'usable',access:'public',source:'Browser fixture',verifiedOn:'2026-01-01',visible:true},
+    });
+    expect(added.status()).toBe(201);
+    await visitor.evaluate(()=>window.dispatchEvent(new Event('focus')));
+    await expect(visitor.getByLabel('Equipment type').getByRole('option',{name:approved})).toHaveCount(1);
+    await visitor.getByLabel('Equipment type').selectOption(published.id);
+    await expect(visitor.getByRole('article',{name:'Selected equipment'})).toContainText('Synthetic grip installation');
+
+    await page.getByRole('button',{name:'Types',exact:true}).click();
+    await page.getByLabel('Search types').fill('Grip');
+    await page.getByRole('button',{name:'Deactivate '+approved}).click();
+    await expect(page.getByRole('dialog')).toContainText('Existing records remain.');
+    await page.getByRole('button',{name:'Confirm deactivation'}).click();
+    await expect(page.getByRole('button',{name:'Reactivate '+approved})).toBeVisible();
+    await visitor.evaluate(()=>window.dispatchEvent(new Event('focus')));
+    await expect(visitor.getByLabel('Equipment type').getByRole('option',{name:approved})).toHaveCount(0);
+    await expect(visitor.getByRole('article',{name:'Selected equipment'})).toContainText('This type is unavailable for new requests and travel suggestions.');
+    await expect(visitor.getByRole('article',{name:'Selected equipment'})).toContainText('usable');
+    await resident.reload();
+    await expect(resident.getByText('Type currently unavailable',{exact:true})).toBeVisible();
+    await expect(resident.getByRole('button',{name:'Withdraw',exact:true})).toBeVisible();
+    await page.getByRole('button',{name:'Reactivate '+approved}).click();
+    await page.getByRole('button',{name:'Confirm reactivation'}).click();
+    await expect(page.getByRole('button',{name:'Deactivate '+approved})).toBeVisible();
+    await page.setViewportSize({width:1440,height:1000});
+    await noPageOverflow(page);
+    await page.screenshot({path:test.info().outputPath('catalog-types-1440.png'),animations:'disabled'});
+  } finally {
+    await Promise.all([resident.close(),visitor.close()]);
+  }
+});

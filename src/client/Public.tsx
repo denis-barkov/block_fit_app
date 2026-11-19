@@ -2,8 +2,8 @@ import { Compass, MapPin } from 'lucide-react';
 import { publicLinks } from '../../config/app';
 import { isInServiceArea, mapArea } from '../../config/map-area';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent } from 'react';
-import { categories, defaultCategory, limits, pilot } from '../../config/settings';
-import type { Category, Coordinate, PublicEquipment } from '../contracts';
+import { defaultCategory, limits, pilot } from '../../config/settings';
+import type { Category, Coordinate, EquipmentType, PublicEquipment } from '../contracts';
 import { travel } from '../../config/travel';
 import { approxDistance, byDistance, distanceBand, distanceNotice, eligible, type Observations } from '../travel';
 import type { CollectEvidence } from './map-evidence';
@@ -11,11 +11,11 @@ import { loginLink } from '../routes';
 import { rememberTravel, takeTravel } from './travel-return';
 import DestinationActions,{mapsHandoff} from './DestinationActions';
 import type { SavedLocation } from '../contracts';
-import { api, Categories, Feedback, Field, InfoHint, message, useAction } from './common';
+import { api, Categories, Feedback, Field, InfoHint, message, preferredType, useAction } from './common';
 
 const MapView=lazy(()=>import('./Map'));
 const TravelPanel=lazy(()=>import('./TravelPanel'));
-export default function Public({request,role}: {request?: (category:Category)=>void;role:'resident'|'staff'|null}) {
+export default function Public({request,role,types}: {request?: (category:Category)=>void;role:'resident'|'staff'|null;types:EquipmentType[]}) {
   const [returning]=useState(()=>role==='resident'?takeTravel():undefined);
   const [category,setCategory]=useState<Category|''>(returning?.category??'');
   const [search,setSearch]=useState(returning?.query??'');
@@ -36,6 +36,7 @@ export default function Public({request,role}: {request?: (category:Category)=>v
   const context=JSON.stringify([category,query,reference,inventoryVersion]);
   const observations=useRef<{context:string;entries:Map<string,Observations>}|null>(null);
   const savedPin=useAction();
+  const unavailable=!!category && !types.some(type=>type.id===category);
   useEffect(()=>{
     const controller=new AbortController();
     setLoading(true);setError('');setVisible(travel.visiblePageSize);
@@ -43,8 +44,9 @@ export default function Public({request,role}: {request?: (category:Category)=>v
       const equipment:PublicEquipment[]=[];
       let after='';
       for(;;) {
-        const params=new URLSearchParams({category,q:query,after});
+        const params=new URLSearchParams({category:unavailable?'':category,q:query,after});
         const response=await fetch(`/api/inventory?${params}`,{signal:controller.signal});
+        if(response.status===409) throw new Error('This equipment type is currently unavailable. Choose another type.');
         if(!response.ok) throw new Error('Equipment could not be loaded. Try again.');
         const page:PublicEquipment[]=await response.json();
         equipment.push(...page);
@@ -59,13 +61,13 @@ export default function Public({request,role}: {request?: (category:Category)=>v
     void load().catch(err=>{if(!controller.signal.aborted)setError(message(err));})
       .finally(()=>{if(!controller.signal.aborted)setLoading(false);});
     return ()=>controller.abort();
-  },[category,query,retry]);
+  },[category,query,retry,types,unavailable]);
   const sorted=useMemo(()=>reference?byDistance(results,reference).map(({site,distance})=>({item:site,distance}))
     :results.map(item=>({item,distance:null})),[results,reference]);
   const sites=useMemo(()=>results.filter(eligible),[results]);
   const item=results.find(row=>row.id===selected);
   const target=sites.find(site=>site.id===helper?.target)??null;
-  const matches=sites.filter(site=>!category||site.category===category);
+  const matches=sites.filter(site=>!category||unavailable||site.category===category);
   const matchIds=new Set(matches.map(site=>site.id));
   const noClose=reference && matches.length && !sorted.some(entry=>entry.distance!==null &&
     entry.distance<=travel.bands[1].limit && matchIds.has(entry.item.id));
@@ -102,10 +104,11 @@ export default function Public({request,role}: {request?: (category:Category)=>v
     </section>
     <div className="shell space-y-5 py-6">
       <form className="panel grid grid-cols-2 items-end gap-3 md:grid-cols-[1fr_1.5fr_auto]" onSubmit={submit}>
-        <Field label="Equipment type"><Categories all value={category} onChange={setCategory}/></Field>
+        <Field label="Equipment type"><Categories types={types} all value={category} onChange={setCategory}/></Field>
         <Field label="Site or park name"><input maxLength={limits.shortText} value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by name"/></Field>
         <button className="button primary col-span-2 md:col-span-1">Find equipment</button>
       </form>
+      {unavailable && <p role="status">This type is currently unavailable for filtering. Showing all equipment.</p>}
       <div className="split">
         <section className="panel space-y-4 xl:col-start-2 xl:row-start-1" aria-labelledby="neighborhood-map">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -132,7 +135,8 @@ export default function Public({request,role}: {request?: (category:Category)=>v
           </Suspense>
           {item && <article className="rounded-control border border-line p-4" aria-label="Selected equipment">
             <InfoHint label="About Maps links" content={<p>{mapsHandoff}</p>}><h3>{item.name}</h3></InfoHint>
-            <p className="text-sm muted">{categories[item.category]} · {item.park?.name||'Standalone equipment'}</p>
+            <p className="text-sm muted">{item.categoryName} · {item.park?.name||'Standalone equipment'}</p>
+            {!item.categoryActive && <p className="text-sm muted">This type is unavailable for new requests and travel suggestions.</p>}
             <dl className="my-4 grid gap-3 text-sm sm:grid-cols-2">
               {Object.entries({Verification:item.fixture&&item.verifiedOn?`Simulated · ${item.verifiedOn}`:item.verifiedOn||'Unverified',Condition:item.condition,
                 'Public access':item.access,Hours:item.park?.hours||'Unknown',Source:item.source||'Unknown'})
@@ -141,7 +145,7 @@ export default function Public({request,role}: {request?: (category:Category)=>v
             {eligible(item)&&<button className="button mb-2" onClick={event=>openHelper(event,item.id)}>Explore this location</button>}
             <DestinationActions key={item.id} site={item}/>
             <div className="mt-2 flex flex-wrap gap-2">
-              {request && <button className="button" onClick={()=>request(item.category)}>Request this equipment nearby</button>}
+              {request && item.categoryActive && <button className="button" onClick={()=>request(item.category)}>Request this equipment nearby</button>}
               {item.park?.cityMaintained && <a className="button" target="_blank" rel="noreferrer" href={publicLinks.parkMaintenance}>Report a City park problem ↗</a>}
             </div>
           </article>}
@@ -154,7 +158,9 @@ export default function Public({request,role}: {request?: (category:Category)=>v
           <Feedback error={error}/>{error && <button className="button" onClick={()=>setRetry(retry+1)}>Retry search</button>}
           {!error && !loading && !results.length && <p>No matching equipment is listed. Try a different site name or equipment type.</p>}
           {!error && !loading && !!results.length && !matches.length &&
-            <p className="mb-3 text-sm muted">No matching locations have confirmed public access, usable equipment, and a verification record.</p>}
+            <p className="mb-3 text-sm muted">{results.some(item=>item.categoryActive)
+              ? 'No matching locations of active types have confirmed public access, usable equipment, and a verification record.'
+              : 'Travel suggestions are unavailable for the listed equipment types.'}</p>}
           {!loading && !error && !!matches.length && <button className="button mb-3 gap-2" onClick={event=>openHelper(event,null)}>
             <Compass className="action-icon" aria-hidden="true"/>
             {noClose?'Nothing close by? Explore travel options.':'Explore travel options'}
@@ -164,7 +170,7 @@ export default function Public({request,role}: {request?: (category:Category)=>v
               <button className={`w-full rounded-control border p-3 text-left ${selected===item.id?'border-brand bg-mint':'border-line bg-white hover:bg-canvas'}`}
                 onClick={()=>setSelected(item.id)} aria-pressed={selected===item.id}>
                 <span className="block font-bold">{item.name}</span>
-                <span className="block text-sm muted">{categories[item.category]} · {item.park?.name||'Standalone equipment'}</span>
+                <span className="block text-sm muted">{item.categoryName} · {item.park?.name||'Standalone equipment'}</span>
                 <span className={`tag mt-2 ${item.verifiedOn?'':'unverified'}`}>{item.fixture && item.verifiedOn?'Simulated verification':item.verifiedOn?'Verification recorded':'Unverified'}</span>
                 {item.access!=='public' && <span className="tag unverified ml-2">{item.access==='restricted'?'Restricted access':'Public access unknown'}</span>}
                 {item.fixture && <span className="ml-2 text-xs muted">Illustrative demo equipment</span>}
@@ -176,7 +182,7 @@ export default function Public({request,role}: {request?: (category:Category)=>v
         </section>
       </div>
       {helper && !loading && !error && <Suspense fallback={<p role="status">Opening travel options…</p>}>
-        <TravelPanel key={JSON.stringify([context,helper.target,role])} category={category} query={query}
+        <TravelPanel key={JSON.stringify([context,helper.target,role])} category={unavailable?'':category} query={query}
           origin={reference} sites={sites} target={target} role={role} collect={collect} close={closeHelper}
           chooseOrigin={()=>{setHelper(null);setPick(true);requestAnimationFrame(()=>pinControl.current?.focus());}}
           signIn={()=>{
@@ -186,7 +192,7 @@ export default function Public({request,role}: {request?: (category:Category)=>v
       </Suspense>}
       {request && <section className="panel flex flex-wrap items-center justify-between gap-4">
         <div><h2>Missing something nearby?</h2><p className="muted">Your request can inform future investment comparisons.</p></div>
-        <button className="button primary" onClick={()=>request(category||item?.category||defaultCategory)}>Request equipment nearby</button>
+        <button className="button primary" onClick={()=>request((!unavailable&&category)||(item?.categoryActive&&item.category)||preferredType(types)||defaultCategory)}>Request equipment nearby</button>
       </section>}
     </div>
   </main>;

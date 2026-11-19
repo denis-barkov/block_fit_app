@@ -32,7 +32,7 @@ beforeAll(async()=>{
 afterAll(async()=>await proxy?.dispose());
 async function current() {
   const value=await getComparison(db,scenario);
-  if(!value||value==='limit')throw new Error('No test comparison.');
+  if(!value||typeof value==='string')throw new Error('No test comparison.');
   return value;
 }
 async function revise() {

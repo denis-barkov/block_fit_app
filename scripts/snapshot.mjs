@@ -3,12 +3,13 @@ import {dirname,join,resolve} from 'node:path';
 import {state} from './environment.mjs';
 import {migrate,withDB} from './local.mjs';
 import {seedDataset} from './fixtures.mjs';
-import {candidateInput,coordinate,equipmentInput,parkInput} from '../src/contracts.ts';
+import {candidateInput,category,coordinate,equipmentInput,parkInput,typeFields,typeNameKey} from '../src/contracts.ts';
 import project from '../package.json' with {type:'json'};
 
 const columns={
   user:'id name email emailVerified image createdAt updatedAt role banned banReason banExpires purpose',
   account:'id accountId providerId userId accessToken refreshToken idToken accessTokenExpiresAt refreshTokenExpiresAt scope password createdAt updatedAt',
+  equipment_types:'id name name_key description active created_at updated_at version',
   locations:'owner lat lng label updated_at use_for_requests',
   removed_locations:'id owner lat lng label removed_at',
   demand:'id owner category lat lng status note suggestion suggested_lat suggested_lng created_at confirmed_at',
@@ -16,10 +17,11 @@ const columns={
   equipment:'id name category lat lng park_id condition access source verified_on visible archived fixture',
   candidates:'id name category lat lng park_id feasibility costs notes project_url archived fixture',
   synthetic_demand:'id category lat lng',
+  type_proposals:'id owner name name_key description submitted_at submission_key status reviewer decided_at category reason request_id reused_request lat lng note suggestion suggested_lat suggested_lng',
   ai_day:'day attempts',
 };
-const publicTables=['parks','equipment','candidates','synthetic_demand'];
-const migration='0005_resident_travel.sql';
+const publicTables=['equipment_types','parks','equipment','candidates','synthetic_demand'];
+const migration='0006_equipment_catalog.sql';
 const legacyIds={parks:['demo-west','demo-east'],equipment:['demo-bars','demo-parallel','demo-bench'],candidates:['demo-a','demo-b','demo-c']};
 const {version}=project;
 
@@ -48,25 +50,32 @@ function validateRecord(table,row) {
     candidateInput.parse({...candidate,parkId:park_id,projectUrl:project_url,costs:JSON.parse(costs)});
   } else if (['locations','removed_locations','demand','synthetic_demand'].includes(table)) {
     coordinate.parse({lat:row.lat,lng:row.lng});
+  } else if (table==='equipment_types'||table==='type_proposals') {
+    category.parse(id);
+    typeFields.parse({name:row.name,description:row.description});
+    if(row.name_key!==typeNameKey(row.name)) throw new Error('Snapshot contains an invalid equipment type name key.');
+    if(table==='type_proposals'&&row.status==='pending') coordinate.parse({lat:row.lat,lng:row.lng});
   }
 }
 export async function restoreSnapshot(db,snapshot) {
   const legacy=snapshot?.version==='0.0.1' && snapshot.migration==='0002_pilot_operations.sql';
   const priorLocations=snapshot?.migration==='0003_demo_and_account_purpose.sql' && /^0\.0\.[2-6]$/.test(snapshot.version);
-  const current=snapshot?.migration===migration && [version,'0.2.0','0.2.1'].includes(snapshot.version);
+  const current=snapshot?.migration===migration && snapshot.version===version;
+  const priorCatalog=snapshot?.migration==='0005_resident_travel.sql' && /^0\.2\.[0-2]$/.test(snapshot.version);
   const priorTravel=snapshot?.migration==='0004_request_locations.sql' && /^0\.1\.[01]$/.test(snapshot.version);
-  if (!snapshot || (!legacy && (!(current || priorTravel || priorLocations) || ![0,1,2].includes(snapshot.demoVersion))) ||
+  if (!snapshot || (!legacy && (!(current || priorCatalog || priorTravel || priorLocations) || ![0,1,2].includes(snapshot.demoVersion))) ||
     !['demo','private'].includes(snapshot.mode) || !Number.isSafeInteger(snapshot.spent) || snapshot.spent<0) {
     throw new Error('This snapshot version, schema or mode is incompatible.');
   }
   const tables=snapshot.mode==='demo'?publicTables:privateTables;
-  const manifest = legacy || priorLocations ? tables.filter(table=>table!=='removed_locations') : tables;
+  const manifest=tables.filter(table=>(current||!['equipment_types','type_proposals'].includes(table))
+    && (!(legacy||priorLocations)||table!=='removed_locations'));
   if (!snapshot.records || Object.keys(snapshot.records).sort().join()!==[...manifest].sort().join()) {
     throw new Error('Snapshot table manifest is invalid.');
   }
-  const present=await db.batch(privateTables.filter(table=>table!=='ai_day')
-    .map(table=>db.prepare(`SELECT count(*) AS n FROM ${table}`)));
-  if (present.some(result=>Number(result.results[0]?.n)>0)) throw new Error('Restore requires an empty target.');
+  const [revision,...present]=await db.batch([db.prepare('SELECT value FROM revision WHERE id=1'),
+    ...privateTables.filter(table=>!['ai_day','equipment_types'].includes(table)).map(table=>db.prepare(`SELECT count(*) AS n FROM ${table}`))]);
+  if (revision.results[0]?.value!==1 || present.some(result=>Number(result.results[0]?.n)>0)) throw new Error('Restore requires an empty target.');
   const statements=[];
   for(const table of tables) {
     const entries=manifest.includes(table)?snapshot.records[table]:[];
@@ -93,6 +102,7 @@ export async function restoreSnapshot(db,snapshot) {
   await db.batch([
     db.prepare('UPDATE operations SET suspended=1,ai_frozen=1,demo_version=? WHERE id=1').bind(
       legacy?Number(snapshot.records.synthetic_demand.length>0):snapshot.demoVersion),
+    ...(current?[db.prepare('DELETE FROM equipment_types')]:[]),
     ...statements,
     db.prepare('UPDATE ai_total SET spent=max(spent,?) WHERE id=1').bind(snapshot.spent),
     db.prepare('DELETE FROM session'),
@@ -101,7 +111,7 @@ export async function restoreSnapshot(db,snapshot) {
   ]);
   const actual=await readTables(db,tables);
   const broken=await db.prepare('PRAGMA foreign_key_check').all();
-  if(broken.results.length || tables.some(table=>table!=='ai_day' && actual[table].length!==(snapshot.records[table]?.length ?? 0))) {
+  if(broken.results.length || manifest.some(table=>table!=='ai_day' && actual[table].length!==snapshot.records[table].length)) {
     throw new Error('Restored data did not validate. The target remains suspended.');
   }
 }

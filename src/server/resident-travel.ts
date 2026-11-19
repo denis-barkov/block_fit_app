@@ -1,12 +1,13 @@
 import type { Context } from 'hono';
 import { z } from 'zod';
-import { ai, categories, limits } from '../../config/settings';
+import { ai, limits } from '../../config/settings';
 import { travel } from '../../config/travel';
 import { isInServiceArea, mapArea } from '../../config/map-area';
 import { category, coordinate, type PublicEquipment } from '../contracts';
 import { byDistance, eligible, landmarkModes, normalizeLandmarks, originEndpoint, reasonText, travelReasons } from '../travel';
 import { generate, hash, modelParameters } from './ai-gateway';
 import { inventory, stmt, throttle } from './database';
+import { typeUnavailable } from './catalog';
 import { loadPrompt } from './prompts';
 import { body, problem, type App } from './web';
 
@@ -32,7 +33,10 @@ export async function suggestTravel(c:Context<App>) {
   const env=c.env, db=env.DB;
   const scope=await hash(JSON.stringify(['resident-travel',env.AUTH_SECRET,user.id]));
   if(!await throttle(db,`travel:${scope}`,travel.ai.requestsPerWindow)) problem(429,'Too many suggestion requests. Try again later.');
-  const revision=(await stmt(db,'SELECT value FROM revision WHERE id=1').first<number>('value'))!;
+  const type=await stmt(db,`SELECT t.name, r.value AS revision FROM equipment_types t CROSS JOIN revision r
+    WHERE t.id=? AND t.active=1 AND r.id=1`,input.category).first<{name:string;revision:number}>();
+  if(!type) problem(409,typeUnavailable);
+  const {revision}=type;
   let after='';
   let pool: ReturnType<typeof byDistance<PublicEquipment>>=[];
   let direct: typeof pool[number] | undefined;
@@ -69,7 +73,7 @@ export async function suggestTravel(c:Context<App>) {
   const payload={
     ...modelParameters(env),
     input:[{role:'developer',content:instructions},{role:'user',content:JSON.stringify({
-      category:categories[input.category],recommendationIds:ids,evidence,originLandmarks:summarize(origin),destinations:facts,
+      category:type.name,recommendationIds:ids,evidence,originLandmarks:summarize(origin),destinations:facts,
     })}],
     text:{format:{type:'json_schema',name:'destination_suggestions',strict:true,schema}},
   };

@@ -1,6 +1,5 @@
 import { Sparkles } from 'lucide-react';
 import { useEffect,useRef,useState } from 'react';
-import { categories } from '../../config/settings';
 import { travel } from '../../config/travel';
 import type { Category, Coordinate, PublicEquipment } from '../contracts';
 import { approxDistance, byDistance, distanceNotice, mapNotice, originEndpoint, reasonText, type TravelResponse } from '../travel';
@@ -60,7 +59,7 @@ export default function TravelPanel({category,query,origin,sites,target,role,col
     const distance=distances.get(site.id);
     return <p className="text-sm muted">
       {distance!==undefined && <><strong className="text-ink">Approx. distance {approxDistance(distance)}</strong> · </>}
-      {categories[site.category]} · {site.condition} · Public access
+      {site.categoryName} · {site.condition} · Public access
     </p>;
   }
 

@@ -2,7 +2,7 @@ import {resolve} from 'node:path';
 import {existsSync,mkdirSync,renameSync} from 'node:fs';
 import {environment,persistPath,setupEnvironment,state,writeConfig} from './environment.mjs';
 import {build,localDev,migrate,packageWorker,withDB} from './local.mjs';
-import {localAccounts,printDemoPlan,seedDataset} from './fixtures.mjs';
+import {localAccounts,printDemoPlan,seedDataset,seedLocalTypeProposals} from './fixtures.mjs';
 import {maintainAccount,provisionAccounts} from './accounts.mjs';
 
 const [command,selected,confirmation]=process.argv.slice(2);
@@ -21,6 +21,12 @@ try {
     const persist=persistPath();
     if (command==='dev') await localDev(env,path,persist);
     else if(command==='db-migrate') migrate(env,path,persist);
+    else if(command==='seed-proposals') {
+      const accountsDir=process.env.BLOCKFIT_STORE?persist:state;
+      mkdirSync(accountsDir,{recursive:true,mode:0o700});
+      await withDB(env,path,db=>seedLocalTypeProposals(db,env,accountsDir),persist);
+      console.log('Local type proposal fixtures checked. Existing decisions were preserved.');
+    }
     else if(['setup','seed','reset-local'].includes(command)) {
       if(command==='reset-local') {
         if(confirmation!=='local'||process.env.BLOCKFIT_STORE) throw new Error('Use ENV=local RESET=local with the default local store to reset.');

@@ -1,7 +1,7 @@
 import { Info } from 'lucide-react';
 import { useEffect,useId,useRef,useState, type FormEvent, type ReactNode } from 'react';
-import { categories, limits } from '../../config/settings';
-import type { Category, Coordinate } from '../contracts';
+import { defaultCategory, limits } from '../../config/settings';
+import type { Coordinate, EquipmentType } from '../contracts';
 
 export interface User { id:string; name:string; email:string; role:'staff'|'resident'; purpose?:string|null }
 export const sessionExpiredEvent = 'blockfit-session-expired';
@@ -38,10 +38,16 @@ export function Feedback({error,status}: {error?:string;status?:string}) {
 export function Field({label,children}: {label:string;children:ReactNode}) {
   return <label className="grid min-w-0 gap-1 text-sm font-semibold">{label}{children}</label>;
 }
-export function Categories({value,onChange,all=false}: {value:string;onChange:(value:Category|'')=>void;all?:boolean}) {
-  return <select value={value} onChange={e=>onChange(e.target.value as Category|'')}>
-    {all && <option value="">All equipment</option>}
-    {Object.entries(categories).map(([key,label]) => <option key={key} value={key}>{label}</option>)}
+export const preferredType=(types:EquipmentType[])=>types.find(type=>type.id===defaultCategory)?.id??types[0]?.id??'';
+export function Categories({types,value,onChange,all=false,disabled=false,unavailable}: {
+  types:EquipmentType[];value:string;onChange:(value:string)=>void;all?:boolean;disabled?:boolean;unavailable?:string;
+}) {
+  return <select value={value} required={!all} disabled={disabled} onChange={e=>onChange(e.target.value)}>
+    <option value="" disabled={!all}>{all?'All equipment':'Choose a type'}</option>
+    {value && !types.some(type=>type.id===value) && <option value={value} disabled>
+      {unavailable ? `${unavailable} (unavailable)` : 'Type currently unavailable'}
+    </option>}
+    {types.map(type=><option key={type.id} value={type.id}>{type.name}</option>)}
   </select>;
 }
 export function Coordinates({value,onChange}: {value:Coordinate;onChange:(value:Coordinate)=>void}) {
@@ -57,10 +63,14 @@ type Help = {label:string;content:ReactNode};
 export function InfoHint({label,content,children}: Help & {children:ReactNode}) {
   const id=useId();
   const [open,setOpen]=useState(false);
-  return <div className="min-w-0">
+  const trigger=useRef<HTMLButtonElement>(null);
+  return <div className="min-w-0" onKeyDown={event=>{
+    if(!open||event.key!=='Escape')return;
+    event.preventDefault();event.stopPropagation();setOpen(false);trigger.current?.focus();
+  }}>
     <div className="flex items-center">
       {children}
-      <button type="button" className="info-trigger" aria-label={label} title={label}
+      <button ref={trigger} type="button" className="info-trigger" aria-label={label} title={label}
         aria-expanded={open} aria-controls={id} onClick={()=>setOpen(value=>!value)}>
         <Info aria-hidden="true" focusable="false"/>
       </button>

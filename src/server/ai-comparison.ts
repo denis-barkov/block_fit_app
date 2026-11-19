@@ -1,5 +1,5 @@
 import { mapArea } from '../../config/map-area';
-import { categories, limits } from '../../config/settings';
+import { limits } from '../../config/settings';
 import { scenarioInput, upfrontKeys } from '../contracts';
 import { highlightExclusions, levels, ranking, type Comparison } from './planning';
 
@@ -53,7 +53,7 @@ export function comparisonSnapshot(result: Comparison) {
 
   return {
     scenario:{
-      category:categories[scenario.category], area:mapArea.name, radiusMetres:scenario.radius,
+      category:result.categoryName, area:mapArea.name, radiusMetres:scenario.radius,
       distance:'straight-line approximation', horizonYears:scenario.horizon,
       upfrontBudgetMinorUnits:scenario.budget, upfrontBudget:money(scenario.budget),
       demandData:dataKind(result.origins.filter(origin => origin.synthetic).length,result.origins.length),

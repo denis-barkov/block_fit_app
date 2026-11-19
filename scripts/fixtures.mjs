@@ -2,9 +2,12 @@ import {existsSync,readFileSync,writeFileSync} from 'node:fs';
 import {randomBytes} from 'node:crypto';
 import {join} from 'node:path';
 import {createAuth} from '../src/server/auth.ts';
-import {demoCandidates,demoDemand,demoEquipment,demoParks,demoVersion,illustrative,legacyDemandIds,simulated} from '../config/demo.ts';
+import {demoCandidates,demoDemand,demoEquipment,demoParks,demoTypeProposals,demoVersion,illustrative,legacyDemandIds,simulated} from '../config/demo.ts';
+import {pilot} from '../config/settings.ts';
+import {typeNameKey} from '../src/contracts.ts';
 
 const versionQuery='SELECT demo_version FROM operations WHERE id=1';
+const localDemoEmail=role=>`${role}@blockfit.example`;
 const records = {
   parks: demoParks.map(([id,name,lat,lng])=>({id,name,lat,lng,external_id:'',source:illustrative,hours:'',city_maintained:0,archived:0,fixture:1})),
   equipment: demoEquipment.map(([id,name,category,lat,lng,park_id,condition,access,verified])=>({
@@ -74,7 +77,7 @@ export async function localAccounts(db,env,dir) {
   let accounts;
   if(existsSync(path)) accounts=JSON.parse(readFileSync(path,'utf8'));
   else {
-    const credential=role=>({email:`${role}@blockfit.example`,password:randomBytes(24).toString('base64url'),
+    const credential=role=>({email:localDemoEmail(role),password:randomBytes(24).toString('base64url'),
       name:role==='staff'?'Demo staff':'Demo resident',role});
     accounts={staff:credential('staff'),resident:credential('resident')};
     writeFileSync(path,JSON.stringify(accounts,null,2)+'\n',{flag:'wx',mode:0o600});
@@ -85,4 +88,18 @@ export async function localAccounts(db,env,dir) {
     else if (stored.role!==account.role) throw new Error('A local demo login is already assigned to another role.');
   }
   return accounts;
+}
+
+export async function seedLocalTypeProposals(db,env,dir) {
+  if(env.DEPLOYMENT!=='local') throw new Error('Type proposal fixtures are local only.');
+  const {resident}=await localAccounts(db,env,dir);
+  // The stock local demo account predates the presentation flag in existing stores.
+  const owner=await db.prepare(`SELECT id FROM user WHERE email=? AND role='resident'
+    AND (purpose='presentation' OR (purpose IS NULL AND email=?))`).bind(resident.email,localDemoEmail('resident')).first('id');
+  if(!owner) throw new Error('The local presentation resident is required.');
+  const now=new Date().toISOString();
+  await db.batch(demoTypeProposals.map(([id,name,description])=>db.prepare(`INSERT INTO type_proposals
+    (id,owner,name,name_key,description,submitted_at,submission_key,lat,lng,note,suggestion)
+    SELECT ?,?,?,?,?,?,?,?,?,'','' WHERE NOT EXISTS(SELECT 1 FROM equipment_types WHERE name_key=?)
+    ON CONFLICT DO NOTHING`).bind(id,owner,name,typeNameKey(name),description,now,id,pilot.center.lat,pilot.center.lng,typeNameKey(name))));
 }

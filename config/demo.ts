@@ -88,3 +88,9 @@ export function demoDemand() {
 }
 
 export const legacyDemandIds=Array.from({length:25},(_,index)=>`demo-demand-${index}`);
+
+export const demoTypeProposals=[
+  ['demo-type-balance','Balance rails','Local demo · Approve this as a new type.'],
+  ['demo-type-platform','Step-up platfroms','Local demo · Correct the spelling to “Step-up platforms” before approving.'],
+  ['demo-type-match','Chin-up frames','Local demo · Use the existing Pull-up bars type.'],
+] as const;

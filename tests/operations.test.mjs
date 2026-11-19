@@ -46,10 +46,11 @@ it('round-trips private data into fresh D1, excludes sessions and freezes AI wit
   await fresh.prepare('UPDATE ai_total SET spent=100 WHERE id=1').run();
   await expect(restoreSnapshot(fresh,{...snapshot,migration:'unknown'})).rejects.toThrow('incompatible');
   const before=await getComparison(db,scenario);
-  await restoreSnapshot(fresh,{...snapshot,version:'0.1.0',migration:'0004_request_locations.sql'});
+  await restoreSnapshot(fresh,snapshot);
   await expect(restoreSnapshot(fresh,snapshot)).rejects.toThrow('empty target');
-  await expect(restoreSnapshot(fresh,{...snapshot,version:'0.2.0'})).rejects.toThrow('empty target');
-  await expect(restoreSnapshot(fresh,{...snapshot,version:'0.2.1'})).rejects.toThrow('empty target');
+  const {equipment_types,type_proposals,...legacyRecords}=snapshot.records;
+  await expect(restoreSnapshot(fresh,{...snapshot,records:legacyRecords,version:'0.2.2',
+    migration:'0005_resident_travel.sql'})).rejects.toThrow('empty target');
   expect(await inventory(fresh,null,'')).toEqual(await inventory(db,null,''));
   expect(await getComparison(fresh,scenario)).toMatchObject({demandCount:before.demandCount,unmet:before.unmet,options:before.options});
   expect(await fresh.prepare('SELECT use_for_requests FROM locations').first('use_for_requests')).toBe(0);
@@ -72,6 +73,8 @@ it('upgrades a 0.0.6 snapshot with its existing saved location enabled',async()=
     snapshot.version='0.0.6';
     snapshot.migration='0003_demo_and_account_purpose.sql';
     delete snapshot.records.removed_locations;
+    delete snapshot.records.equipment_types;
+    delete snapshot.records.type_proposals;
     for(const row of snapshot.records.locations) delete row.use_for_requests;
     await restoreSnapshot(old.env.DB,snapshot);
     expect(await old.env.DB.prepare('SELECT use_for_requests FROM locations').first('use_for_requests')).toBe(1);

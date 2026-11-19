@@ -4,11 +4,13 @@ import { isInServiceArea, pinOutsideServiceArea } from '../../config/map-area';
 import { z } from 'zod';
 import { candidateInput, equipmentInput, parkInput, scenarioInput, type Coordinate, type Scenario } from '../contracts';
 import { cachedExplanation, explain } from './ai';
+import { activeEquipmentType, activeType, staffCatalog, typeUnavailable } from './catalog';
 import { getComparison, staffInventory, stmt, throttle } from './database';
 import { makeBrief } from './planning';
 import { body, changed, problem, type App } from './web';
 
 export const staff = new Hono<App>();
+staff.route('/',staffCatalog);
 const isTest=(c:import('hono').Context<App>)=>c.get('user').purpose==='automated-test';
 staff.use('/inventory/*',async (c,next)=>{
   if (isTest(c)) problem(403,'Automated-test staff use the isolated comparison workspace.');
@@ -20,14 +22,20 @@ async function save(db: D1Database, table: string, id: string|null, data: Coordi
   if (!isInServiceArea(data)) problem(400,pinOutsideServiceArea);
   const columns = Object.keys(data);
   const values = Object.values(data);
+  const category=typeof data.category==='string'?data.category:null;
   if (id) {
-    changed(await stmt(db,`UPDATE ${table} SET ${columns.map(column => `${column}=?`).join(',')}
-      WHERE id=? AND archived=0`,...values,id).run());
+    const result=await stmt(db,`UPDATE ${table} SET ${columns.map(column => `${column}=?`).join(',')}
+      WHERE id=? AND archived=0 ${category?'AND (category=? OR '+activeType+')':''}`,
+      ...values,id,...(category?[category,category]:[])).run();
+    if(!result.meta.changes && category && !await activeEquipmentType(db,category)) problem(409,typeUnavailable);
+    changed(result);
     return id;
   }
   const newId = crypto.randomUUID();
-  await stmt(db,`INSERT INTO ${table}(id,${columns.join(',')}) VALUES (?,${values.map(() => '?').join(',')})`,
-    newId,...values).run();
+  const result=await stmt(db,`INSERT INTO ${table}(id,${columns.join(',')})
+    SELECT ?,${values.map(() => '?').join(',')} ${category?'WHERE '+activeType:''}`,
+    newId,...values,...(category?[category]:[])).run();
+  changed(result,typeUnavailable,409);
   return newId;
 }
 staff.on(['POST','PUT'],'/inventory/:kind/:id?',async c => {
@@ -58,6 +66,7 @@ staff.delete('/inventory/:kind/:id', async c => {
 
 async function comparison(db: D1Database, input: Scenario, testWorkspace: boolean, revision?: number) {
   const result = await getComparison(db,input,testWorkspace);
+  if (result === 'inactive') problem(409,typeUnavailable);
   if (result === 'limit') problem(409,'The pilot dataset exceeds the comparison limit.');
   if (!result) problem(400,'Select active candidates of this category that are eligible for comparison.');
   if (revision !== undefined && result.revision !== revision) problem(409,'Data has changed. Refresh the comparison.');

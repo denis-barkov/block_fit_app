@@ -1,7 +1,5 @@
-export const categories = {
-  'pull-up': 'Pull-up bars', parallel: 'Parallel bars', 'sit-up': 'Sit-up benches',
-} as const;
-export const defaultCategory: keyof typeof categories = 'pull-up';
+export const defaultCategory = 'pull-up';
+export const catalogLimits = {nameMin:2,nameMax:80,description:500,reason:240,pending:5,daily:10,page:50,matches:5};
 const demoNeighborhood = 'Forest Hills';
 export const pilot = {
   neighborhood: demoNeighborhood,

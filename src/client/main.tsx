@@ -3,14 +3,14 @@ import { createRoot } from 'react-dom/client';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './styles.css';
 import { appIdentity } from '../../config/app';
-import { defaultCategory } from '../../config/settings';
-import { category,type Category } from '../contracts';
-import { loginLink,residentLogin,returnPath,staffHome,staffInventoryPage,staffLogin } from '../routes';
+import { category,type Category,type EquipmentType } from '../contracts';
+import { loginLink,residentLogin,returnPath,staffCatalogPage,staffHome,staffInventoryPage,staffLogin } from '../routes';
 import { api,AuthForm,Feedback,message,Modal,PasswordForm,sessionExpiredEvent,useAction,type User } from './common';
 import Public from './Public';
 import { clearTravel } from './travel-return';
 const Resident=lazy(()=>import('./Resident'));
 const City=lazy(()=>import('./City'));
+const CityCatalog=lazy(()=>import('./CityCatalog'));
 
 const path=location.pathname.replace(/\/$/,'')||'/';
 const staffPage=path===staffHome||path.startsWith(staffHome+'/');
@@ -25,7 +25,27 @@ function App() {
   const accountButton=useRef<HTMLButtonElement>(null);
   const [error,setError]=useState('');
   const [sessionCheck,recheck]=useState(0);
+  const [types,setTypes]=useState<EquipmentType[]>();
+  const [catalogError,setCatalogError]=useState('');
+  const catalogLoad=useRef(0);
   const action=useAction();
+  async function refreshTypes() {
+    const load=++catalogLoad.current;
+    try {
+      const received=await api<EquipmentType[]>('/catalog');
+      if(load!==catalogLoad.current) return;
+      setTypes(previous=>JSON.stringify(previous)===JSON.stringify(received)?previous:received);
+      setCatalogError('');
+    } catch(error) {if(load===catalogLoad.current)setCatalogError(message(error));}
+  }
+  useEffect(()=>{
+    const refresh=()=>void refreshTypes();
+    refresh();
+    window.addEventListener('focus',refresh);
+    const restore=(event:PageTransitionEvent)=>{if(event.persisted)refresh();};
+    window.addEventListener('pageshow',restore);
+    return ()=>{window.removeEventListener('focus',refresh);window.removeEventListener('pageshow',restore);};
+  },[]);
 
   useEffect(()=>{
     let active=true;
@@ -77,7 +97,8 @@ function App() {
   const mismatch=staffPage?user?.role==='resident':path==='/requests'&&user?.role==='staff';
   const signIn=(matched:User)=>{
     if(staffPage && matched.role==='resident') {setUser(matched);return;}
-    location.replace(matched.role==='staff'&&matched.purpose==='automated-test'?staffHome:returnPath(matched.role,next));
+    const destination=returnPath(matched.role,next);
+    location.replace(matched.role==='staff'&&matched.purpose==='automated-test'&&destination!==staffCatalogPage?staffHome:destination);
   };
   const request=(value:Category)=>{location.assign(`/requests?category=${encodeURIComponent(value)}`);};
 
@@ -94,6 +115,7 @@ function App() {
             {user?.role==='staff' && <>
               <a className="py-2" href={staffHome} aria-current={path===staffHome?'page':undefined}>Investment comparisons</a>
               {user.purpose!=='automated-test' && <a className="py-2" href={staffInventoryPage} aria-current={path===staffInventoryPage?'page':undefined}>Manage inventory</a>}
+              <a className="py-2" href={staffCatalogPage} aria-current={path===staffCatalogPage?'page':undefined}>Equipment types</a>
             </>}
             <a className="py-2" href="/">View public site</a>
           </>:<>
@@ -127,9 +149,13 @@ function App() {
             <AuthForm registration={!staffPage} contact={contact} onUser={signIn}/>
           </section></main>
         ) : <Suspense fallback={<p className="shell py-8" role="status">Loading workspace…</p>}>
-          {staffPage && user?.role==='staff' ? <City inventoryOnly={path===staffInventoryPage} testWorkspace={user.purpose==='automated-test'}/> :
-            path==='/requests' && user?.role==='resident' ? <Resident initialCategory={selected.success?selected.data:defaultCategory}/> :
-            <Public role={user?.role??null} request={user?.role==='staff'?undefined:request}/>}
+          {catalogError && <div className="shell py-3"><Feedback error={catalogError}/>
+            <button className="button" onClick={()=>void refreshTypes()}>Retry equipment types</button></div>}
+          {staffPage && user?.role==='staff' && path===staffCatalogPage ? <CityCatalog types={types??[]} refreshTypes={refreshTypes}/> :
+            !types ? !catalogError && <p className="shell py-8" role="status">Loading equipment types…</p> :
+            staffPage && user?.role==='staff' ? <City types={types} inventoryOnly={path===staffInventoryPage} testWorkspace={user.purpose==='automated-test'}/> :
+            path==='/requests' && user?.role==='resident' ? <Resident types={types} initialCategory={selected.success?selected.data:null}/> :
+            <Public types={types} role={user?.role??null} request={user?.role==='staff'?undefined:request}/>}
         </Suspense>}
     </div>
     {!staffPage && <footer className="mt-4 border-t border-line"><div className="shell flex flex-wrap justify-between gap-3 py-6 text-sm muted">

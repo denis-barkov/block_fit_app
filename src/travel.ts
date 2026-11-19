@@ -11,7 +11,7 @@ export const approxDistance = (metres: number) => new Intl.NumberFormat('en-US',
   .format(metres/travel.metresPerMile)+' mi';
 
 export function eligible(item: PublicEquipment) {
-  return item.access==='public' && item.condition==='usable' && !!item.verifiedOn && isInServiceArea(item);
+  return item.categoryActive && item.access==='public' && item.condition==='usable' && !!item.verifiedOn && isInServiceArea(item);
 }
 
 export function byDistance<T extends Coordinate & {id:string}>(items: T[], origin: Coordinate) {

@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {smokeCredentials} from './accounts.mjs';
-import {categories,pilot,planning} from '../config/settings.ts';
+import {pilot,planning} from '../config/settings.ts';
 
 export async function smoke(env,db,{transport=fetch,readCredentials=smokeCredentials}={}) {
   const secure=env.APP_ORIGIN.startsWith('https:');
@@ -47,7 +47,7 @@ export async function smoke(env,db,{transport=fetch,readCredentials=smokeCredent
       if(!result.ok)throw new Error('Resident smoke data could not be loaded.');
       const {location,requests}=await result.json();
       const active=new Set(requests.filter(row=>row.status==='recorded').map(row=>row.category));
-      category=Object.keys(categories).find(key=>!active.has(key));
+      category=(await (await http('/catalog')).json()).find(type=>!active.has(type.id))?.id;
       if(!category)throw new Error('No free equipment category on the dedicated smoke resident account.');
       owner=user.id;
       if(location?.useForRequests===false) throw new Error('The dedicated smoke resident has disabled its saved location.');
