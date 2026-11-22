@@ -6,6 +6,9 @@
 .dev.vars.*
 !.dev.vars*.example
 
+# Private agent instructions
+/AGENTS.md
+
 # Dependencies and generated output
 node_modules/
 /dist/
