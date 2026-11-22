@@ -2,7 +2,7 @@
 
 **Better-informed public investment in outdoor recreation**
 
-BlockFit helps local governments direct recreation budgets toward community needs and program goals. Staff compare sites using mapped resident demand, equipment coverage, and costs. Optional AI evaluation adds goal-fit ratings, reasons, and evidence gaps.
+BlockFit helps local governments direct recreation budgets toward community needs using mapped demand, equipment coverage, and costs. AI-assisted goal evaluation helps staff compare options against a program’s priorities—not just cost and coverage—with fit ratings, reasons, and evidence gaps.
 
 [**Try the public beta**](https://blockfit-demo.pages.dev/) · [**Request staff demo access**](https://www.linkedin.com/in/den-barkov/) · [Run locally](#run-locally)
 
@@ -22,9 +22,9 @@ flowchart TD
     H -.-> I
 ```
 
-![Staff workspace showing the demand map, a selected program goal, and cost and coverage comparisons](doc/images/staff-workspace.jpg)
+[![Illustrative staff workspace overview with a resident demand map, investment comparison, and program goal](doc/images/staff-overview.jpg)](doc/government-planning-workflow.md)
 
-*Illustrative demo data. The map shows synthetic demand and candidate sites. Staff can review modeled alternatives and optionally evaluate them against the selected goal.*
+*Illustrative demo data. Open the government planning workflow for readable examples of the map, comparison table, and goal assessment.*
 
 - [Resident workflow](doc/resident-workflow.md)
 - [Government planning workflow](doc/government-planning-workflow.md)
@@ -32,7 +32,7 @@ flowchart TD
 
 BlockFit began with a problem I kept running into while looking for pull-up bars in Brooklyn. I developed the idea for a November 2026 hackathon and continued it as an independent project.
 
-The 1.1.0 beta is labeled **BlockFit NYC** in the app and illustrates the approach with data in Brooklyn and Queens. A pilot elsewhere would need local inventory, geography, costs, and program criteria.
+The beta is labeled **BlockFit NYC** in the app and illustrates the approach with data in Brooklyn and Queens. A pilot elsewhere would need local inventory, geography, costs, and program criteria.
 
 ## Run locally
 

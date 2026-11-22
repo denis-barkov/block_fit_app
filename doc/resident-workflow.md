@@ -2,6 +2,10 @@
 
 Imagine you want to find a pull-up bar near a park you visit. Open the public equipment map, choose **Pull-up bars**, and set a reference location. The list and map show equipment entries that match the selected type. Select an entry to see the details on file, including condition, access, and verification where available. The Brooklyn and Queens beta includes illustrative listings with simulated verification. Treat those entries as examples before planning a visit.
 
+[![Reference pin among pull-up bar markers, with details and directions for the selected equipment](images/resident-find-equipment.jpg)](images/resident-find-equipment.jpg)
+
+*Illustrative demo data. The reference pin sets the starting point for distance comparisons. The selected listing shows the available verification and access details before you open directions.*
+
 [Try the public beta](https://blockfit-demo.pages.dev/)
 
 ```mermaid
@@ -23,7 +27,11 @@ If you sign in as a resident, you can ask the AI travel helper for a shortlist o
 
 In the beta service area, a signed-in resident can save a private location and choose whether to use it for new requests. Select the equipment type and review the request before recording it. You can suggest a different installation site separately. If the equipment type is missing from the catalog, submit a type suggestion for staff review. If staff approve it, the app records the associated demand or links it to an active request.
 
-In **My requests**, a **Recorded** status means the request is saved. You can update an active request, confirm that you still need the equipment, or withdraw it. A withdrawn request stays in the history and can be reconfirmed when its equipment type is active. Type suggestions have their own review status in the request history.
+In **My requests**, a **Recorded** status means the request is saved. You can update an active request, confirm that you still need the equipment, or withdraw it. To restore a withdrawn request, its equipment type must be active and you need a saved location enabled for requests. Type suggestions have their own review status in the request history.
+
+[![Request history with a pending equipment-type proposal, a recorded request, and a withdrawn request with a restore action](images/resident-manage-requests.jpg)](images/resident-manage-requests.jpg)
+
+*Illustrative demo records. A saved request offers Edit request, Still needed, and Withdraw. A withdrawn request stays visible with a Restore request action. A type suggestion awaiting review is listed separately.*
 
 ## How it informs planning
 

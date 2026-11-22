@@ -2,7 +2,7 @@
 
 I live in Brooklyn and like exercising outdoors, especially doing pull-ups. A gym is an option, but I enjoy being outside, and the exercise itself takes very little equipment. Finding that equipment has been the harder part. Friends and I have had trouble finding a suitable bar close enough to where we want to work out.
 
-Around the parts of Coney Island beach I use, bars can be hard to come by. On a nice day I’ve found myself waiting in line to use one. That’s my experience at the places I visit, and somebody who uses a different stretch of beach might tell a different story. What stuck with me was how a small piece of equipment could change whether exercising somewhere was convenient.
+Around the Coney Island locations I use, pull-up bars are scarce, and good weather often brings a queue. What stuck with me was how a small piece of equipment could make outdoor exercise much more convenient.
 
 I’ve actually used scaffolding for pull-ups because I couldn’t find a bar nearby. Anyone else? Finding somewhere to exercise shouldn’t require that much creativity.
 
