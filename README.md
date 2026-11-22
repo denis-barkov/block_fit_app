@@ -1,8 +1,38 @@
-# BlockFit NYC
+# BlockFit
 
-BlockFit NYC helps City staff compare outdoor fitness investments using resident requests, existing equipment coverage, and transparent cost assumptions. Residents can find equipment, check what is known about access, and request what is missing near a private location. Staff can maintain the inventory, model candidate sites under a budget, and export a comparison brief.
+**Better-informed public investment in outdoor recreation**
 
-The 1.0.3 beta uses a demonstration dataset in and around Forest Hills, Queens with 153 synthetic request origins, 29 illustrative equipment records, and 15 candidate sites. Maps are framed around all five boroughs. New resident and staff pins must fall within Brooklyn or Queens, including Coney Island and the Rockaways. Demo verification and cost assumptions are simulated. BlockFit NYC is an NYCEDC project concept. A recorded request can inform planning discussion, and City approval and funding follow existing processes.
+BlockFit helps local governments direct recreation budgets toward community needs and program goals. Staff compare sites using mapped resident demand, equipment coverage, and costs. Optional AI evaluation adds goal-fit ratings, reasons, and evidence gaps.
+
+[**Try the public beta**](https://blockfit-demo.pages.dev/) · [**Request staff demo access**](https://www.linkedin.com/in/den-barkov/) · [Run locally](#run-locally)
+
+Explore the equipment map without an account. Sign in as a resident to request missing equipment or use the optional AI travel helper. I arrange free staff demo access individually, usually for about a week, because I cover the demo's AI costs. I welcome feedback and pilot discussions.
+
+```mermaid
+flowchart TD
+    A["Find equipment · optional AI help"] -->|"If something is missing"| B["Resident submits a request"]
+    B --> D["Compare coverage and cost"]
+    C["Staff add sites and cost assumptions"] --> D
+    D --> F["Review alternatives"]
+    D --> E["Optional AI goal evaluation"]
+    G["Staff define a program goal"] --> E
+    E -->|"Fit, reasons and evidence gaps"| F
+    F -.-> H["Optional AI explanation of tradeoffs"]
+    F --> I["Export a comparison brief"]
+    H -.-> I
+```
+
+![Staff workspace showing the demand map, a selected program goal, and cost and coverage comparisons](doc/images/staff-workspace.jpg)
+
+*Illustrative demo data. The map shows synthetic demand and candidate sites. Staff can review modeled alternatives and optionally evaluate them against the selected goal.*
+
+- [Resident workflow](doc/resident-workflow.md)
+- [Government planning workflow](doc/government-planning-workflow.md)
+- [Why I built BlockFit](doc/why-blockfit.md)
+
+BlockFit began with a problem I kept running into while looking for pull-up bars in Brooklyn. I developed the idea for a November 2026 hackathon and continued it as an independent project.
+
+The 1.1.0 beta is labeled **BlockFit NYC** in the app and illustrates the approach with data in Brooklyn and Queens. A pilot elsewhere would need local inventory, geography, costs, and program criteria.
 
 ## Run locally
 
@@ -33,6 +63,8 @@ Setup applies the SQL migrations and creates the local dataset and two demonstra
 | `make benchmark-auth` | Measure Better Auth’s native scrypt password verification on the local Node host. |
 
 ## Product behavior
+
+The stock demo fixture includes 153 synthetic request origins, 29 illustrative equipment records, and 15 candidate sites. Maps can show all five boroughs. New pins must fall within the Brooklyn and Queens service area, including Coney Island and the Rockaways. Fixture verification and costs are simulated.
 
 - **Public discovery.** Browse without login and filter by equipment type or site name. Set a reference pin to sort matching equipment by approximate straight-line distance. The distance bands are Nearby (through 0.25 mi), A little farther (through 0.5 mi), Farther away (through 1 mi), and Consider transportation (beyond 1 mi). The actual journey may be longer. Site details, copying the destination, and Apple Maps and Google Maps links are public. Maps receives the destination only. Demo pins open a map view. Sites flagged as NYC Parks-maintained link to [NYC311 park maintenance](https://portal.311.nyc.gov/article/?kanumber=KA-01060).
 - **Resident requests.** Register with a display name, unverified email login, and a passphrase of at least 15 characters. Save one private pin in Brooklyn or Queens, even where there are no equipment listings. Choose whether to use it for new requests. Existing pins outside the service area require a move before new requests can use them. Turning that preference off leaves active requests in place. Moving the pin requires confirmation and moves all active requests together. Withdraw active requests before removing the saved pin. Removal archives the pin with a date and keeps past requests in your history. A database constraint allows one active request per account and equipment type. A suggested installation site is separate from the request location.

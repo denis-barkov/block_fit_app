@@ -3,7 +3,7 @@ export const appIdentity = {
   monogram: 'BF',
   description: 'Find outdoor fitness equipment and compare options for improving access.',
   tagline: 'Outdoor fitness access and investment planning',
-  projectConcept: 'NYCEDC project concept',
+  projectConcept: 'Independent project demo',
   demoLabel: 'Beta demo',
 };
 
